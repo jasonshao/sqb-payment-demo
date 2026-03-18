@@ -23,9 +23,9 @@ public class SqbTerminalService {
     private final SqbConfig config;
     private final SqbHttpClient httpClient;
 
-    public SqbTerminalService(SqbConfig config) {
+    public SqbTerminalService(SqbConfig config, SqbHttpClient httpClient) {
         this.config = config;
-        this.httpClient = new SqbHttpClient();
+        this.httpClient = httpClient;
     }
 
     /**

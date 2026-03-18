@@ -10,12 +10,15 @@ import okhttp3.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.stereotype.Component;
+
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 /**
  * 收钱吧 HTTP 客户端封装
  */
+@Component
 public class SqbHttpClient {
 
     private static final Logger log = LoggerFactory.getLogger(SqbHttpClient.class);

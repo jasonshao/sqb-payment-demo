@@ -36,9 +36,9 @@ public class SqbPayService {
     private final SqbHttpClient httpClient;
     private final SqbQueryService queryService;
 
-    public SqbPayService(SqbConfig config, SqbQueryService queryService) {
+    public SqbPayService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService) {
         this.config = config;
-        this.httpClient = new SqbHttpClient();
+        this.httpClient = httpClient;
         this.queryService = queryService;
     }
 

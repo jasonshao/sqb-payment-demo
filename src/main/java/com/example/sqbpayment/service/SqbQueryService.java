@@ -32,9 +32,9 @@ public class SqbQueryService {
     private final SqbConfig config;
     private final SqbHttpClient httpClient;
 
-    public SqbQueryService(SqbConfig config) {
+    public SqbQueryService(SqbConfig config, SqbHttpClient httpClient) {
         this.config = config;
-        this.httpClient = new SqbHttpClient();
+        this.httpClient = httpClient;
     }
 
     /**
