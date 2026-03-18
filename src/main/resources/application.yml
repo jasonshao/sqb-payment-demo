@@ -1,0 +1,24 @@
+server:
+  port: 8080
+
+sqb:
+  # 收钱吧 API 域名（生产环境，无沙盒）
+  api-base: https://vsi-api.shouqianba.com
+
+  # 服务商信息（用于终端激活）
+  vendor-sn: ${SQB_VENDOR_SN:}
+  vendor-key: ${SQB_VENDOR_KEY:}
+
+  # 应用 ID
+  app-id: ${SQB_APP_ID:}
+
+  # 终端信息（激活后获得，签到后 terminal-key 会更新）
+  terminal-sn: ${SQB_TERMINAL_SN:}
+  terminal-key: ${SQB_TERMINAL_KEY:}
+
+  # 设备唯一标识
+  device-id: ${SQB_DEVICE_ID:}
+
+logging:
+  level:
+    com.example.sqbpayment: DEBUG
