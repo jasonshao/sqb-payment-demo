@@ -2,6 +2,7 @@ package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
+import com.example.sqbpayment.util.ClientSnGenerator;
 import com.example.sqbpayment.util.SqbHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +29,9 @@ class SqbRefundServiceTest {
     @Mock
     private SqbQueryService queryService;
 
+    @Mock
+    private ClientSnGenerator clientSnGenerator;
+
     private SqbConfig config;
     private SqbRefundService refundService;
 
@@ -39,8 +43,9 @@ class SqbRefundServiceTest {
         config.setTerminalKey("terminalkey001");
 
         when(httpClient.getObjectMapper()).thenReturn(new ObjectMapper());
+        when(clientSnGenerator.generateRefundNo()).thenReturn("REF20260320000000000001");
 
-        refundService = new SqbRefundService(config, httpClient, queryService);
+        refundService = new SqbRefundService(config, httpClient, queryService, clientSnGenerator);
     }
 
     // ========== 全额退款成功 ==========

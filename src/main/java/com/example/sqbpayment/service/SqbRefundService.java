@@ -32,11 +32,14 @@ public class SqbRefundService {
     private final SqbConfig config;
     private final SqbHttpClient httpClient;
     private final SqbQueryService queryService;
+    private final ClientSnGenerator clientSnGenerator;
 
-    public SqbRefundService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService) {
+    public SqbRefundService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService,
+                            ClientSnGenerator clientSnGenerator) {
         this.config = config;
         this.httpClient = httpClient;
         this.queryService = queryService;
+        this.clientSnGenerator = clientSnGenerator;
     }
 
     /**
@@ -52,7 +55,7 @@ public class SqbRefundService {
     public CompletableFuture<SqbResponse> refund(String sn, String clientSn, String refundAmount,
                                                     String operator, String refundReason) throws IOException, InterruptedException {
 
-        String refundRequestNo = ClientSnGenerator.generateRefundNo();
+        String refundRequestNo = clientSnGenerator.generateRefundNo();
 
         RefundRequest request = new RefundRequest();
         request.setTerminalSn(config.getTerminalSn());

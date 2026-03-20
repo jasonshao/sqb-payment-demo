@@ -1,6 +1,25 @@
 server:
   port: 8080
 
+spring:
+  # H2 内嵌数据库（demo 用途，生产环境替换为 MySQL）
+  datasource:
+    url: jdbc:h2:mem:leafdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+
 sqb:
   # 收钱吧 API 域名（生产环境，无沙盒）
   api-base: https://vsi-api.shouqianba.com

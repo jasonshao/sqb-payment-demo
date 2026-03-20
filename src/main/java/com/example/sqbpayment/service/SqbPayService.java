@@ -36,11 +36,14 @@ public class SqbPayService {
     private final SqbConfig config;
     private final SqbHttpClient httpClient;
     private final SqbQueryService queryService;
+    private final ClientSnGenerator clientSnGenerator;
 
-    public SqbPayService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService) {
+    public SqbPayService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService,
+                         ClientSnGenerator clientSnGenerator) {
         this.config = config;
         this.httpClient = httpClient;
         this.queryService = queryService;
+        this.clientSnGenerator = clientSnGenerator;
     }
 
     /**
@@ -56,7 +59,7 @@ public class SqbPayService {
     public CompletableFuture<SqbResponse> pay(String dynamicId, String totalAmount, String subject,
                                                 String operator, String notifyUrl) throws IOException, InterruptedException {
 
-        String clientSn = ClientSnGenerator.generate();
+        String clientSn = clientSnGenerator.generate();
 
         PayRequest request = new PayRequest();
         request.setTerminalSn(config.getTerminalSn());
