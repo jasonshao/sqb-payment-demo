@@ -12,6 +12,9 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Component;
 
+import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
+
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
@@ -28,7 +31,15 @@ public class SqbHttpClient {
     private final ObjectMapper objectMapper;
 
     public SqbHttpClient() {
+        Dispatcher dispatcher = new Dispatcher();
+        dispatcher.setMaxRequests(64);
+        dispatcher.setMaxRequestsPerHost(16);
+
+        ConnectionPool connectionPool = new ConnectionPool(32, 5, TimeUnit.MINUTES);
+
         this.httpClient = new OkHttpClient.Builder()
+                .dispatcher(dispatcher)
+                .connectionPool(connectionPool)
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .writeTimeout(10, TimeUnit.SECONDS)

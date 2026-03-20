@@ -75,7 +75,7 @@ public class SqbTerminalService {
      *
      * @return 签到响应，包含新的 terminal_key
      */
-    public SqbResponse checkin() throws IOException {
+    public synchronized SqbResponse checkin() throws IOException {
         CheckinRequest request = new CheckinRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setDeviceId(config.getDeviceId());

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 付款码支付控制器（B扫C）
@@ -38,7 +39,7 @@ public class SqbPayController {
      * 该接口会自动处理轮询逻辑，返回最终支付结果
      */
     @PostMapping
-    public ResponseEntity<Map<String, Object>> pay(@RequestBody Map<String, String> params) {
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> pay(@RequestBody Map<String, String> params) {
         String dynamicId = params.get("dynamicId");
         String totalAmount = params.get("totalAmount");
         String subject = params.get("subject");
@@ -46,26 +47,26 @@ public class SqbPayController {
         String notifyUrl = params.get("notifyUrl");
 
         if (dynamicId == null || totalAmount == null || subject == null || operator == null) {
-            return ResponseEntity.badRequest().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().body(Map.of(
                     "success", false,
                     "message", "缺少必填参数：dynamicId, totalAmount, subject, operator"
-            ));
+            )));
         }
 
         try {
-            SqbResponse response = payService.pay(dynamicId, totalAmount, subject, operator, notifyUrl);
-            return ResponseEntity.ok(buildPayResult(response));
+            return payService.pay(dynamicId, totalAmount, subject, operator, notifyUrl)
+                    .thenApply(response -> ResponseEntity.ok(buildPayResult(response)));
         } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
                     "message", "支付请求失败: " + e.getMessage()
-            ));
+            )));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return ResponseEntity.internalServerError().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
                     "message", "支付轮询被中断"
-            ));
+            )));
         }
     }
 

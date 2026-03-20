@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -64,7 +65,7 @@ class SqbRefundServiceTest {
         when(httpClient.execute(contains("/upay/v2/refund"), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = refundService.refund("789284025", null, "100", "cashier01", "顾客要求退款");
+        SqbResponse result = refundService.refund("789284025", null, "100", "cashier01", "顾客要求退款").join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
         assertEquals("100", result.getRefundedAmount());
@@ -91,7 +92,7 @@ class SqbRefundServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = refundService.refund(null, "order001", "50", "cashier01", null);
+        SqbResponse result = refundService.refund(null, "order001", "50", "cashier01", null).join();
 
         assertEquals("PARTIAL_REFUNDED", result.getOrderStatus());
         assertEquals("50", result.getRefundedAmount());
@@ -114,7 +115,7 @@ class SqbRefundServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = refundService.refund("sn001", null, "999", "op", null);
+        SqbResponse result = refundService.refund("sn001", null, "999", "op", null).join();
 
         assertEquals("REFUND_FAIL", result.getBizResultCode());
         verifyNoInteractions(queryService);
@@ -139,10 +140,10 @@ class SqbRefundServiceTest {
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """));
-        when(queryService.pollByClientSn("order001")).thenReturn(pollResult);
+        when(queryService.pollByClientSn("order001")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
         // 使用 clientSn 查询（sn 为 null）
-        SqbResponse result = refundService.refund(null, "order001", "100", "op", null);
+        SqbResponse result = refundService.refund(null, "order001", "100", "op", null).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
         verify(queryService).pollByClientSn("order001");
@@ -162,16 +163,15 @@ class SqbRefundServiceTest {
         when(httpClient.execute(contains("/upay/v2/refund"), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        // 使用 sn 查询时走 pollBySn 内部逻辑（queryBySn）
-        String queryResponseJson = """
+        SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED","sn":"sn001"}}}
-                """;
-        when(queryService.queryBySn("sn001")).thenReturn(new SqbResponse(MAPPER.readTree(queryResponseJson)));
+                """));
+        when(queryService.pollBySn("sn001")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = refundService.refund("sn001", null, "100", "op", null);
+        SqbResponse result = refundService.refund("sn001", null, "100", "op", null).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
-        verify(queryService).queryBySn("sn001");
+        verify(queryService).pollBySn("sn001");
     }
 
     @Test
@@ -191,9 +191,9 @@ class SqbRefundServiceTest {
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """));
-        when(queryService.pollByClientSn("order002")).thenReturn(pollResult);
+        when(queryService.pollByClientSn("order002")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = refundService.refund(null, "order002", "100", "op", null);
+        SqbResponse result = refundService.refund(null, "order002", "100", "op", null).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
     }
@@ -208,7 +208,7 @@ class SqbRefundServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = refundService.refund("sn", null, "100", "op", null);
+        SqbResponse result = refundService.refund("sn", null, "100", "op", null).join();
 
         assertFalse(result.isCommunicationSuccess());
         verifyNoInteractions(queryService);

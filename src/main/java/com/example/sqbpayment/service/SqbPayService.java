@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 付款码支付服务（B扫C）
@@ -52,8 +53,8 @@ public class SqbPayService {
      * @param notifyUrl   异步回调通知地址（可选）
      * @return 支付结果（可能经过轮询）
      */
-    public SqbResponse pay(String dynamicId, String totalAmount, String subject,
-                           String operator, String notifyUrl) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> pay(String dynamicId, String totalAmount, String subject,
+                                                String operator, String notifyUrl) throws IOException, InterruptedException {
 
         String clientSn = ClientSnGenerator.generate();
 
@@ -75,26 +76,26 @@ public class SqbPayService {
         // 三层响应判定
         if (!sqbResponse.isCommunicationSuccess()) {
             log.error("支付请求通信失败: {}", sqbResponse);
-            return sqbResponse;
+            return CompletableFuture.completedFuture(sqbResponse);
         }
 
         String bizResultCode = sqbResponse.getBizResultCode();
 
         if ("PAY_FAIL".equals(bizResultCode)) {
             log.info("支付失败: clientSn={}, reason={}", clientSn, sqbResponse.getBizErrorMessage());
-            return sqbResponse;
+            return CompletableFuture.completedFuture(sqbResponse);
         }
 
         if ("PAY_SUCCESS".equals(bizResultCode)) {
             String orderStatus = sqbResponse.getOrderStatus();
             if (OrderStatus.isFinal(orderStatus)) {
                 log.info("支付结果确定: clientSn={}, status={}", clientSn, orderStatus);
-                return sqbResponse;
+                return CompletableFuture.completedFuture(sqbResponse);
             }
         }
 
-        // PAY_IN_PROGRESS / PAY_FAIL_ERROR / 非最终状态 -> 启动轮询
-        log.info("支付状态未确定，启动轮询查询: clientSn={}, bizResultCode={}", clientSn, bizResultCode);
+        // PAY_IN_PROGRESS / PAY_FAIL_ERROR / 非最终状态 -> 异步轮询（不阻塞请求线程）
+        log.info("支付状态未确定，启动异步轮询查询: clientSn={}, bizResultCode={}", clientSn, bizResultCode);
         return queryService.pollByClientSn(clientSn);
     }
 }

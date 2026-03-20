@@ -16,7 +16,7 @@ public final class ClientSnGenerator {
     private ClientSnGenerator() {
     }
 
-    public static String generate() {
+    public static synchronized String generate() {
         String timestamp = LocalDateTime.now().format(FORMATTER);
         long seq = SEQUENCE.incrementAndGet() % 1000000;
         return timestamp + String.format("%06d", seq);

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 异步回调通知处理器
@@ -38,6 +39,9 @@ public class SqbNotifyController {
     private static final Set<String> FINAL_STATUSES = Set.of(
             "PAID", "PAY_CANCELED", "REFUNDED", "PARTIAL_REFUNDED", "CANCELED"
     );
+
+    /** 幂等记录：已处理过的订单号 -> 处理时间戳（防止重复处理） */
+    private final ConcurrentHashMap<String, Long> processedOrders = new ConcurrentHashMap<>();
 
     private final SqbConfig config;
 
@@ -79,8 +83,15 @@ public class SqbNotifyController {
 
         log.info("回调通知解析: sn={}, clientSn={}, orderStatus={}", sn, clientSn, orderStatus);
 
-        // 幂等处理：业务系统应检查订单是否已处理过
-        // TODO: 在此处添加业务逻辑，例如更新订单状态、通知前端等
+        // 幂等处理：使用 sn 作为去重键，putIfAbsent 保证原子性
+        String deduplicationKey = sn.isEmpty() ? clientSn : sn;
+        if (!deduplicationKey.isEmpty()) {
+            Long previous = processedOrders.putIfAbsent(deduplicationKey, System.currentTimeMillis());
+            if (previous != null) {
+                log.info("回调通知重复，已忽略: key={}, orderStatus={}", deduplicationKey, orderStatus);
+                return "success";
+            }
+        }
 
         if (FINAL_STATUSES.contains(orderStatus)) {
             log.info("订单到达最终状态: clientSn={}, status={}", clientSn, orderStatus);

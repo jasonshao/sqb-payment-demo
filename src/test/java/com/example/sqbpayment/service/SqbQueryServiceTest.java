@@ -141,7 +141,7 @@ class SqbQueryServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(paidResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
         // 第一次查询就是最终状态，只应调用一次
@@ -162,7 +162,7 @@ class SqbQueryServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(canceledResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAY_CANCELED", result.getOrderStatus());
         verify(httpClient, times(1)).execute(anyString(), anyString(), anyString(), anyString());
@@ -182,7 +182,7 @@ class SqbQueryServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(refundedResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
     }
@@ -201,7 +201,7 @@ class SqbQueryServiceTest {
                 .thenReturn(MAPPER.readTree(createdResponse))
                 .thenReturn(MAPPER.readTree(paidResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(httpClient, times(2)).execute(anyString(), anyString(), anyString(), anyString());
@@ -220,7 +220,7 @@ class SqbQueryServiceTest {
                 .thenReturn(MAPPER.readTree(failResponse))
                 .thenReturn(MAPPER.readTree(paidResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(httpClient, times(2)).execute(anyString(), anyString(), anyString(), anyString());
@@ -239,7 +239,7 @@ class SqbQueryServiceTest {
                 .thenReturn(MAPPER.readTree(errorResponse))
                 .thenReturn(MAPPER.readTree(paidResponse));
 
-        SqbResponse result = queryService.pollByClientSn("order001");
+        SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
     }

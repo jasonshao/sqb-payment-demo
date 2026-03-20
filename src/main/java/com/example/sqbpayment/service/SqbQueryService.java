@@ -8,9 +8,11 @@ import com.example.sqbpayment.util.SqbHttpClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 订单查询服务，支持单次查询和轮询查询
@@ -58,17 +60,25 @@ public class SqbQueryService {
     }
 
     /**
-     * 轮询查询直到获得最终状态
+     * 异步轮询查询直到获得最终状态
      * 最终状态：PAID, PAY_CANCELED, REFUNDED, PARTIAL_REFUNDED, CANCELED
      *
      * @param clientSn 商户订单号
-     * @return 最终状态的查询结果
+     * @return 最终状态的查询结果（异步）
      */
-    public SqbResponse pollByClientSn(String clientSn) throws IOException, InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long elapsed = 0;
+    @Async("pollExecutor")
+    public CompletableFuture<SqbResponse> pollByClientSn(String clientSn) throws IOException, InterruptedException {
+        return CompletableFuture.completedFuture(doPollByClientSn(clientSn));
+    }
 
-        while (elapsed < POLL_TIMEOUT_SECONDS * 1000L) {
+    /**
+     * 同步轮询（内部使用），在异步线程池中执行
+     */
+    SqbResponse doPollByClientSn(String clientSn) throws IOException, InterruptedException {
+        long startNanos = System.nanoTime();
+        long elapsedMs = 0;
+
+        while (elapsedMs < POLL_TIMEOUT_SECONDS * 1000L) {
             SqbResponse response = queryByClientSn(clientSn);
 
             if (response.isCommunicationSuccess()) {
@@ -83,14 +93,45 @@ public class SqbQueryService {
             }
 
             // 前60秒每3秒查询，之后每10秒查询
-            int waitMs = elapsed < FAST_PHASE_SECONDS * 1000L ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
+            int waitMs = elapsedMs < FAST_PHASE_SECONDS * 1000L ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
             Thread.sleep(waitMs);
-            elapsed = System.currentTimeMillis() - startTime;
+            elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         }
 
         // 超时，返回最后一次查询结果
         log.warn("轮询查询超时({}秒): clientSn={}，请人工确认", POLL_TIMEOUT_SECONDS, clientSn);
         return queryByClientSn(clientSn);
+    }
+
+    /**
+     * 异步轮询查询（通过收钱吧订单号）
+     */
+    @Async("pollExecutor")
+    public CompletableFuture<SqbResponse> pollBySn(String sn) throws IOException, InterruptedException {
+        return CompletableFuture.completedFuture(doPollBySn(sn));
+    }
+
+    /**
+     * 同步轮询（通过 sn），在异步线程池中执行
+     */
+    SqbResponse doPollBySn(String sn) throws IOException, InterruptedException {
+        long startNanos = System.nanoTime();
+        long elapsedMs = 0;
+        long timeoutMs = POLL_TIMEOUT_SECONDS * 1000L;
+
+        while (elapsedMs < timeoutMs) {
+            SqbResponse response = queryBySn(sn);
+            if (response.isCommunicationSuccess() && OrderStatus.isFinal(response.getOrderStatus())) {
+                log.info("轮询查询获得最终状态: sn={}, status={}", sn, response.getOrderStatus());
+                return response;
+            }
+            int waitMs = elapsedMs < 60_000 ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
+            Thread.sleep(waitMs);
+            elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
+        }
+
+        log.warn("轮询查询超时({}秒): sn={}，请人工确认", POLL_TIMEOUT_SECONDS, sn);
+        return queryBySn(sn);
     }
 
     private SqbResponse doQuery(QueryRequest request) throws IOException {

@@ -23,10 +23,10 @@ public class SqbConfig {
     private String appId;
 
     /** 终端序列号（激活后获得） */
-    private String terminalSn;
+    private volatile String terminalSn;
 
     /** 终端密钥（激活/签到后获得，会动态更新） */
-    private String terminalKey;
+    private volatile String terminalKey;
 
     /** 设备唯一标识 */
     private String deviceId;

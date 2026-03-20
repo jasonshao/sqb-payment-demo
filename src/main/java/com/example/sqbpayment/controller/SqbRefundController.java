@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 退款控制器
@@ -38,7 +39,7 @@ public class SqbRefundController {
      * 退款为异步操作，该接口会自动轮询等待最终结果
      */
     @PostMapping
-    public ResponseEntity<Map<String, Object>> refund(@RequestBody Map<String, String> params) {
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> refund(@RequestBody Map<String, String> params) {
         String sn = params.get("sn");
         String clientSn = params.get("clientSn");
         String refundAmount = params.get("refundAmount");
@@ -46,43 +47,43 @@ public class SqbRefundController {
         String refundReason = params.get("refundReason");
 
         if (refundAmount == null || operator == null) {
-            return ResponseEntity.badRequest().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().body(Map.of(
                     "success", false,
                     "message", "缺少必填参数：refundAmount, operator"
-            ));
+            )));
         }
         if (sn == null && clientSn == null) {
-            return ResponseEntity.badRequest().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.badRequest().body(Map.of(
                     "success", false,
                     "message", "需要提供 sn 或 clientSn"
-            ));
+            )));
         }
 
         try {
-            SqbResponse response = refundService.refund(sn, clientSn, refundAmount, operator, refundReason);
-
-            Map<String, Object> result = new HashMap<>();
-            String orderStatus = response.getOrderStatus();
-            result.put("success", "REFUNDED".equals(orderStatus) || "PARTIAL_REFUNDED".equals(orderStatus));
-            result.put("orderStatus", orderStatus);
-            result.put("sn", response.getSn());
-            result.put("clientSn", response.getClientSn());
-            result.put("totalAmount", response.getTotalAmount());
-            result.put("refundedAmount", response.getRefundedAmount());
-            result.put("raw", response.getRawResponse().toString());
-            return ResponseEntity.ok(result);
-
+            return refundService.refund(sn, clientSn, refundAmount, operator, refundReason)
+                    .thenApply(response -> {
+                        Map<String, Object> result = new HashMap<>();
+                        String orderStatus = response.getOrderStatus();
+                        result.put("success", "REFUNDED".equals(orderStatus) || "PARTIAL_REFUNDED".equals(orderStatus));
+                        result.put("orderStatus", orderStatus);
+                        result.put("sn", response.getSn());
+                        result.put("clientSn", response.getClientSn());
+                        result.put("totalAmount", response.getTotalAmount());
+                        result.put("refundedAmount", response.getRefundedAmount());
+                        result.put("raw", response.getRawResponse().toString());
+                        return ResponseEntity.ok(result);
+                    });
         } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
                     "message", "退款请求失败: " + e.getMessage()
-            ));
+            )));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return ResponseEntity.internalServerError().body(Map.of(
+            return CompletableFuture.completedFuture(ResponseEntity.internalServerError().body(Map.of(
                     "success", false,
                     "message", "退款轮询被中断"
-            ));
+            )));
         }
     }
 }

@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -64,7 +65,7 @@ class SqbPayServiceTest {
         when(httpClient.execute(contains("/upay/v2/pay"), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = payService.pay("130818341921600584", "100", "测试商品", "cashier01", null);
+        SqbResponse result = payService.pay("130818341921600584", "100", "测试商品", "cashier01", null).join();
 
         assertEquals("PAID", result.getOrderStatus());
         assertEquals("100", result.getTotalAmount());
@@ -89,7 +90,7 @@ class SqbPayServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = payService.pay("invalid_code", "100", "测试", "op", null);
+        SqbResponse result = payService.pay("invalid_code", "100", "测试", "op", null).join();
 
         assertEquals("PAY_FAIL", result.getBizResultCode());
         verifyNoInteractions(queryService);
@@ -115,9 +116,9 @@ class SqbPayServiceTest {
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID","client_sn":"sn001"}}}
                 """));
-        when(queryService.pollByClientSn(anyString())).thenReturn(pollResult);
+        when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null);
+        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());
@@ -140,9 +141,9 @@ class SqbPayServiceTest {
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAY_CANCELED"}}}
                 """));
-        when(queryService.pollByClientSn(anyString())).thenReturn(pollResult);
+        when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null);
+        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
 
         assertEquals("PAY_CANCELED", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());
@@ -158,7 +159,7 @@ class SqbPayServiceTest {
         when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(MAPPER.readTree(responseJson));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null);
+        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
 
         assertFalse(result.isCommunicationSuccess());
         verifyNoInteractions(queryService);
@@ -261,9 +262,9 @@ class SqbPayServiceTest {
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """));
-        when(queryService.pollByClientSn(anyString())).thenReturn(pollResult);
+        when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null);
+        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());

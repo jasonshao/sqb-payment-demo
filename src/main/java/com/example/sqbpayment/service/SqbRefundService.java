@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 退款服务
@@ -48,8 +49,8 @@ public class SqbRefundService {
      * @param refundReason 退款原因（可选）
      * @return 退款结果（可能经过轮询）
      */
-    public SqbResponse refund(String sn, String clientSn, String refundAmount,
-                              String operator, String refundReason) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> refund(String sn, String clientSn, String refundAmount,
+                                                    String operator, String refundReason) throws IOException, InterruptedException {
 
         String refundRequestNo = ClientSnGenerator.generateRefundNo();
 
@@ -70,7 +71,7 @@ public class SqbRefundService {
 
         if (!sqbResponse.isCommunicationSuccess()) {
             log.error("退款请求通信失败: {}", sqbResponse);
-            return sqbResponse;
+            return CompletableFuture.completedFuture(sqbResponse);
         }
 
         String bizResultCode = sqbResponse.getBizResultCode();
@@ -79,41 +80,20 @@ public class SqbRefundService {
             String orderStatus = sqbResponse.getOrderStatus();
             if (OrderStatus.isFinal(orderStatus)) {
                 log.info("退款成功: refundRequestNo={}, status={}", refundRequestNo, orderStatus);
-                return sqbResponse;
+                return CompletableFuture.completedFuture(sqbResponse);
             }
         }
 
         if ("REFUND_FAIL".equals(bizResultCode)) {
             log.info("退款失败: refundRequestNo={}, reason={}", refundRequestNo, sqbResponse.getBizErrorMessage());
-            return sqbResponse;
+            return CompletableFuture.completedFuture(sqbResponse);
         }
 
-        // REFUND_IN_PROGRESS / REFUND_FAIL_ERROR -> 轮询查询
-        log.info("退款状态未确定，启动轮询: refundRequestNo={}", refundRequestNo);
-        String queryKey = (sn != null && !sn.isEmpty()) ? null : clientSn;
-        if (queryKey != null) {
-            return queryService.pollByClientSn(queryKey);
+        // REFUND_IN_PROGRESS / REFUND_FAIL_ERROR -> 异步轮询查询
+        log.info("退款状态未确定，启动异步轮询: refundRequestNo={}", refundRequestNo);
+        if (sn != null && !sn.isEmpty()) {
+            return queryService.pollBySn(sn);
         }
-        // 如果有 sn，使用 sn 查询
-        return pollBySn(sn);
-    }
-
-    private SqbResponse pollBySn(String sn) throws IOException, InterruptedException {
-        long startTime = System.currentTimeMillis();
-        long elapsed = 0;
-        int timeoutMs = 120_000;
-
-        while (elapsed < timeoutMs) {
-            SqbResponse response = queryService.queryBySn(sn);
-            if (response.isCommunicationSuccess() && OrderStatus.isFinal(response.getOrderStatus())) {
-                return response;
-            }
-            int waitMs = elapsed < 60_000 ? 3000 : 10_000;
-            Thread.sleep(waitMs);
-            elapsed = System.currentTimeMillis() - startTime;
-        }
-
-        log.warn("退款轮询超时: sn={}", sn);
-        return queryService.queryBySn(sn);
+        return queryService.pollByClientSn(clientSn);
     }
 }
