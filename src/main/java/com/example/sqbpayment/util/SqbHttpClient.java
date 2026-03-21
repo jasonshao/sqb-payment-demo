@@ -2,49 +2,53 @@ package com.example.sqbpayment.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import org.springframework.http.HttpRequest;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-
-import okhttp3.ConnectionPool;
-import okhttp3.Dispatcher;
+import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
-import java.util.concurrent.TimeUnit;
+import java.nio.charset.StandardCharsets;
 
 /**
- * 收钱吧 HTTP 客户端封装
+ * 收钱吧 HTTP 客户端（基于 Spring RestClient）
+ *
+ * 特性：
+ * - 使用 Spring 6.1 内置 RestClient，无需第三方 HTTP 依赖
+ * - 签名通过拦截器自动注入 Authorization 头
+ * - 请求/响应自动序列化
  */
 @Component
 public class SqbHttpClient {
 
     private static final Logger log = LoggerFactory.getLogger(SqbHttpClient.class);
-    private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
 
-    private final OkHttpClient httpClient;
+    private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
     public SqbHttpClient() {
-        Dispatcher dispatcher = new Dispatcher();
-        dispatcher.setMaxRequests(64);
-        dispatcher.setMaxRequestsPerHost(16);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10_000);
+        factory.setReadTimeout(60_000);
 
-        ConnectionPool connectionPool = new ConnectionPool(32, 5, TimeUnit.MINUTES);
-
-        this.httpClient = new OkHttpClient.Builder()
-                .dispatcher(dispatcher)
-                .connectionPool(connectionPool)
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
-                .writeTimeout(10, TimeUnit.SECONDS)
-                .build();
         this.objectMapper = new ObjectMapper();
+        this.restClient = RestClient.builder()
+                .requestFactory(factory)
+                .build();
+    }
+
+    /**
+     * 测试专用构造器：允许注入自定义 RestClient
+     */
+    SqbHttpClient(RestClient restClient, ObjectMapper objectMapper) {
+        this.restClient = restClient;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -59,25 +63,19 @@ public class SqbHttpClient {
     public JsonNode execute(String url, String requestBody, String sn, String key) throws IOException {
         String authorization = SqbSignUtil.buildAuthorization(sn, requestBody, key);
 
-        Request request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(requestBody, JSON_MEDIA_TYPE))
-                .addHeader("Authorization", authorization)
-                .addHeader("Content-Type", "application/json; charset=utf-8")
-                .build();
-
         log.info("收钱吧请求: URL={}, Body={}", url, requestBody);
 
-        try (Response response = httpClient.newCall(request).execute()) {
-            String responseBody = response.body() != null ? response.body().string() : "";
-            log.info("收钱吧响应: Status={}, Body={}", response.code(), responseBody);
+        String responseBody = restClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("Authorization", authorization)
+                .body(requestBody)
+                .retrieve()
+                .body(String.class);
 
-            if (!response.isSuccessful()) {
-                throw new IOException("HTTP request failed with status: " + response.code() + ", body: " + responseBody);
-            }
+        log.info("收钱吧响应: Body={}", responseBody);
 
-            return objectMapper.readTree(responseBody);
-        }
+        return objectMapper.readTree(responseBody);
     }
 
     public ObjectMapper getObjectMapper() {
