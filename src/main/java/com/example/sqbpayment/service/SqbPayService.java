@@ -3,10 +3,9 @@ package com.example.sqbpayment.service;
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
 import com.example.sqbpayment.model.enums.OrderStatus;
+import com.example.sqbpayment.model.request.PayCommand;
 import com.example.sqbpayment.model.request.PayRequest;
 import com.example.sqbpayment.util.ClientSnGenerator;
-import com.example.sqbpayment.util.SqbHttpClient;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,14 +33,14 @@ public class SqbPayService {
     private static final Logger log = LoggerFactory.getLogger(SqbPayService.class);
 
     private final SqbConfig config;
-    private final SqbHttpClient httpClient;
+    private final SqbApiTemplate apiTemplate;
     private final SqbQueryService queryService;
     private final ClientSnGenerator clientSnGenerator;
 
-    public SqbPayService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService,
+    public SqbPayService(SqbConfig config, SqbApiTemplate apiTemplate, SqbQueryService queryService,
                          ClientSnGenerator clientSnGenerator) {
         this.config = config;
-        this.httpClient = httpClient;
+        this.apiTemplate = apiTemplate;
         this.queryService = queryService;
         this.clientSnGenerator = clientSnGenerator;
     }
@@ -49,32 +48,22 @@ public class SqbPayService {
     /**
      * 发起付款码支付
      *
-     * @param dynamicId   顾客付款码内容（扫码枪扫描获得）
-     * @param totalAmount 金额，单位为分
-     * @param subject     交易简介，显示在顾客账单中
-     * @param operator    操作员
-     * @param notifyUrl   异步回调通知地址（可选）
+     * @param command 支付命令（已通过 Bean Validation 校验）
      * @return 支付结果（可能经过轮询）
      */
-    public CompletableFuture<SqbResponse> pay(String dynamicId, String totalAmount, String subject,
-                                                String operator, String notifyUrl) throws IOException, InterruptedException {
-
+    public CompletableFuture<SqbResponse> pay(PayCommand command) throws IOException, InterruptedException {
         String clientSn = clientSnGenerator.generate();
 
         PayRequest request = new PayRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setClientSn(clientSn);
-        request.setTotalAmount(totalAmount);
-        request.setDynamicId(dynamicId);
-        request.setSubject(subject);
-        request.setOperator(operator);
-        request.setNotifyUrl(notifyUrl);
+        request.setTotalAmount(String.valueOf(command.totalAmount()));
+        request.setDynamicId(command.dynamicId());
+        request.setSubject(command.subject());
+        request.setOperator(command.operator());
+        request.setNotifyUrl(command.notifyUrl());
 
-        String requestBody = httpClient.getObjectMapper().writeValueAsString(request);
-        String url = config.getApiBase() + "/upay/v2/pay";
-
-        JsonNode response = httpClient.execute(url, requestBody, config.getTerminalSn(), config.getTerminalKey());
-        SqbResponse sqbResponse = new SqbResponse(response);
+        SqbResponse sqbResponse = apiTemplate.call("/upay/v2/pay", request);
 
         // 三层响应判定
         if (!sqbResponse.isCommunicationSuccess()) {

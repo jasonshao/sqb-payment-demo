@@ -2,11 +2,13 @@ package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
-import com.example.sqbpayment.util.SqbHttpClient;
+import com.example.sqbpayment.model.request.ActivateRequest;
+import com.example.sqbpayment.model.request.CheckinRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -22,7 +24,7 @@ class SqbTerminalServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Mock
-    private SqbHttpClient httpClient;
+    private SqbApiTemplate apiTemplate;
 
     private SqbConfig config;
     private SqbTerminalService service;
@@ -38,9 +40,7 @@ class SqbTerminalServiceTest {
         config.setTerminalKey("terminalkey001");
         config.setDeviceId("device001");
 
-        when(httpClient.getObjectMapper()).thenReturn(new ObjectMapper());
-
-        service = new SqbTerminalService(config, httpClient);
+        service = new SqbTerminalService(config, apiTemplate);
     }
 
     // ========== 激活测试 ==========
@@ -60,18 +60,13 @@ class SqbTerminalServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(
-                eq("https://vsi-api.shouqianba.com/terminal/activate"),
-                anyString(),
-                eq("vendor001"),
-                eq("vendorkey001")
-        )).thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.callAsVendor(eq("/terminal/activate"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = service.activate("code123", "device001", "收银台1号");
 
         assertTrue(result.isCommunicationSuccess());
         assertEquals("ACTIVATE_SUCCESS", result.getBizResultCode());
-        // 验证 terminal_sn 和 terminal_key 已更新到配置
         assertEquals("new_terminal_sn", config.getTerminalSn());
         assertEquals("new_terminal_key", config.getTerminalKey());
     }
@@ -81,18 +76,14 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"ACTIVATE_SUCCESS","data":{"terminal_sn":"t1","terminal_key":"k1"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         service.activate("code", "device", null);
 
-        // 验证使用了 vendor_sn 和 vendor_key（非 terminal 级别）
-        verify(httpClient).execute(
-                contains("/terminal/activate"),
-                anyString(),
-                eq("vendor001"),
-                eq("vendorkey001")
-        );
+        // 验证使用了 callAsVendor（非 call）
+        verify(apiTemplate).callAsVendor(eq("/terminal/activate"), any());
+        verify(apiTemplate, never()).call(anyString(), any());
     }
 
     @Test
@@ -107,13 +98,12 @@ class SqbTerminalServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = service.activate("bad_code", "device", null);
 
         assertEquals("ACTIVATE_FAIL", result.getBizResultCode());
-        // 配置不应被更新
         assertEquals("terminal001", config.getTerminalSn());
         assertEquals("terminalkey001", config.getTerminalKey());
     }
@@ -123,18 +113,18 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"500","error_message":"服务器内部错误"}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = service.activate("code", "device", null);
 
         assertFalse(result.isCommunicationSuccess());
-        assertEquals("terminal001", config.getTerminalSn()); // 未更新
+        assertEquals("terminal001", config.getTerminalSn());
     }
 
     @Test
     void testActivateNetworkException() throws Exception {
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
+        when(apiTemplate.callAsVendor(anyString(), any()))
                 .thenThrow(new IOException("网络超时"));
 
         assertThrows(IOException.class, () -> service.activate("code", "device", null));
@@ -145,13 +135,14 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"ACTIVATE_SUCCESS","data":{"terminal_sn":"t","terminal_key":"k"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         service.activate("code", "device001", "terminal_name");
 
-        // 验证请求体包含 app_id
-        verify(httpClient).execute(anyString(), contains("app001"), anyString(), anyString());
+        ArgumentCaptor<ActivateRequest> captor = ArgumentCaptor.forClass(ActivateRequest.class);
+        verify(apiTemplate).callAsVendor(anyString(), captor.capture());
+        assertEquals("app001", captor.getValue().getAppId());
     }
 
     // ========== 签到测试 ==========
@@ -170,18 +161,13 @@ class SqbTerminalServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(
-                eq("https://vsi-api.shouqianba.com/terminal/checkin"),
-                anyString(),
-                eq("terminal001"),
-                eq("terminalkey001")
-        )).thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(eq("/terminal/checkin"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = service.checkin();
 
         assertTrue(result.isCommunicationSuccess());
         assertEquals("TERMINAL_CHECKIN_SUCCESS", result.getBizResultCode());
-        // 关键：验证 terminal_key 已被轮换更新
         assertEquals("rotated_key_new", config.getTerminalKey());
     }
 
@@ -190,18 +176,14 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"TERMINAL_CHECKIN_SUCCESS","data":{"terminal_sn":"t","terminal_key":"k"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         service.checkin();
 
-        // 验证使用了 terminal_sn 和 terminal_key（非 vendor 级别）
-        verify(httpClient).execute(
-                contains("/terminal/checkin"),
-                anyString(),
-                eq("terminal001"),
-                eq("terminalkey001")
-        );
+        // 验证使用了 call（非 callAsVendor）
+        verify(apiTemplate).call(eq("/terminal/checkin"), any());
+        verify(apiTemplate, never()).callAsVendor(anyString(), any());
     }
 
     @Test
@@ -216,13 +198,12 @@ class SqbTerminalServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = service.checkin();
 
         assertEquals("TERMINAL_CHECKIN_FAIL", result.getBizResultCode());
-        // 签到失败时 terminal_key 不应更新
         assertEquals("terminalkey001", config.getTerminalKey());
     }
 
@@ -231,12 +212,14 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"TERMINAL_CHECKIN_SUCCESS","data":{"terminal_sn":"t","terminal_key":"k"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         service.checkin();
 
-        verify(httpClient).execute(anyString(), contains("terminal001"), anyString(), anyString());
+        ArgumentCaptor<CheckinRequest> captor = ArgumentCaptor.forClass(CheckinRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("terminal001", captor.getValue().getTerminalSn());
     }
 
     @Test
@@ -244,11 +227,13 @@ class SqbTerminalServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"TERMINAL_CHECKIN_SUCCESS","data":{"terminal_sn":"t","terminal_key":"k"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         service.checkin();
 
-        verify(httpClient).execute(anyString(), contains("device001"), anyString(), anyString());
+        ArgumentCaptor<CheckinRequest> captor = ArgumentCaptor.forClass(CheckinRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("device001", captor.getValue().getDeviceId());
     }
 }

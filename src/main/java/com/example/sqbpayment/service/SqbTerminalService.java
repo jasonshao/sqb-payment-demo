@@ -4,8 +4,6 @@ import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
 import com.example.sqbpayment.model.request.ActivateRequest;
 import com.example.sqbpayment.model.request.CheckinRequest;
-import com.example.sqbpayment.util.SqbHttpClient;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -21,11 +19,11 @@ public class SqbTerminalService {
     private static final Logger log = LoggerFactory.getLogger(SqbTerminalService.class);
 
     private final SqbConfig config;
-    private final SqbHttpClient httpClient;
+    private final SqbApiTemplate apiTemplate;
 
-    public SqbTerminalService(SqbConfig config, SqbHttpClient httpClient) {
+    public SqbTerminalService(SqbConfig config, SqbApiTemplate apiTemplate) {
         this.config = config;
-        this.httpClient = httpClient;
+        this.apiTemplate = apiTemplate;
     }
 
     /**
@@ -45,12 +43,7 @@ public class SqbTerminalService {
         request.setDeviceId(deviceId);
         request.setName(name);
 
-        String requestBody = httpClient.getObjectMapper().writeValueAsString(request);
-        String url = config.getApiBase() + "/terminal/activate";
-
-        // 激活接口使用 vendor 级别签名
-        JsonNode response = httpClient.execute(url, requestBody, config.getVendorSn(), config.getVendorKey());
-        SqbResponse sqbResponse = new SqbResponse(response);
+        SqbResponse sqbResponse = apiTemplate.callAsVendor("/terminal/activate", request);
 
         if (sqbResponse.isCommunicationSuccess() && "ACTIVATE_SUCCESS".equals(sqbResponse.getBizResultCode())) {
             String terminalSn = sqbResponse.getTerminalSn();
@@ -80,12 +73,7 @@ public class SqbTerminalService {
         request.setTerminalSn(config.getTerminalSn());
         request.setDeviceId(config.getDeviceId());
 
-        String requestBody = httpClient.getObjectMapper().writeValueAsString(request);
-        String url = config.getApiBase() + "/terminal/checkin";
-
-        // 签到接口使用 terminal 级别签名
-        JsonNode response = httpClient.execute(url, requestBody, config.getTerminalSn(), config.getTerminalKey());
-        SqbResponse sqbResponse = new SqbResponse(response);
+        SqbResponse sqbResponse = apiTemplate.call("/terminal/checkin", request);
 
         if (sqbResponse.isCommunicationSuccess() && "TERMINAL_CHECKIN_SUCCESS".equals(sqbResponse.getBizResultCode())) {
             String newTerminalKey = sqbResponse.getTerminalKey();

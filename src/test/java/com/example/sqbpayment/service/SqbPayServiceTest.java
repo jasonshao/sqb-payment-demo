@@ -2,12 +2,14 @@ package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
+import com.example.sqbpayment.model.request.PayCommand;
+import com.example.sqbpayment.model.request.PayRequest;
 import com.example.sqbpayment.util.ClientSnGenerator;
-import com.example.sqbpayment.util.SqbHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -24,7 +26,7 @@ class SqbPayServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Mock
-    private SqbHttpClient httpClient;
+    private SqbApiTemplate apiTemplate;
 
     @Mock
     private SqbQueryService queryService;
@@ -42,10 +44,13 @@ class SqbPayServiceTest {
         config.setTerminalSn("terminal001");
         config.setTerminalKey("terminalkey001");
 
-        when(httpClient.getObjectMapper()).thenReturn(new ObjectMapper());
         when(clientSnGenerator.generate()).thenReturn("20260320000000000001");
 
-        payService = new SqbPayService(config, httpClient, queryService, clientSnGenerator);
+        payService = new SqbPayService(config, apiTemplate, queryService, clientSnGenerator);
+    }
+
+    private PayCommand payCommand(String dynamicId, long totalAmount, String subject, String operator, String notifyUrl) {
+        return new PayCommand(dynamicId, totalAmount, subject, operator, notifyUrl);
     }
 
     // ========== 支付成功场景 ==========
@@ -67,14 +72,13 @@ class SqbPayServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(contains("/upay/v2/pay"), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(eq("/upay/v2/pay"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = payService.pay("130818341921600584", "100", "测试商品", "cashier01", null).join();
+        SqbResponse result = payService.pay(payCommand("130818341921600584", 100, "测试商品", "cashier01", null)).join();
 
         assertEquals("PAID", result.getOrderStatus());
         assertEquals("100", result.getTotalAmount());
-        // 不应触发轮询
         verifyNoInteractions(queryService);
     }
 
@@ -92,10 +96,10 @@ class SqbPayServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = payService.pay("invalid_code", "100", "测试", "op", null).join();
+        SqbResponse result = payService.pay(payCommand("invalid_code", 100, "测试", "op", null)).join();
 
         assertEquals("PAY_FAIL", result.getBizResultCode());
         verifyNoInteractions(queryService);
@@ -114,16 +118,15 @@ class SqbPayServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(payResponseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(payResponseJson)));
 
-        // 模拟轮询结果
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID","client_sn":"sn001"}}}
                 """));
         when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
+        SqbResponse result = payService.pay(payCommand("code", 100, "test", "op", null)).join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());
@@ -140,15 +143,15 @@ class SqbPayServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAY_CANCELED"}}}
                 """));
         when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
+        SqbResponse result = payService.pay(payCommand("code", 100, "test", "op", null)).join();
 
         assertEquals("PAY_CANCELED", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());
@@ -161,10 +164,10 @@ class SqbPayServiceTest {
         String responseJson = """
                 {"result_code":"400","error_code":"ILLEGAL_SIGN","error_message":"签名错误"}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
+        SqbResponse result = payService.pay(payCommand("code", 100, "test", "op", null)).join();
 
         assertFalse(result.isCommunicationSuccess());
         verifyNoInteractions(queryService);
@@ -172,11 +175,11 @@ class SqbPayServiceTest {
 
     @Test
     void testPayNetworkException() throws Exception {
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
+        when(apiTemplate.call(anyString(), any()))
                 .thenThrow(new IOException("连接超时"));
 
         assertThrows(IOException.class,
-                () -> payService.pay("code", "100", "test", "op", null));
+                () -> payService.pay(payCommand("code", 100, "test", "op", null)));
     }
 
     // ========== 请求参数验证 ==========
@@ -186,13 +189,14 @@ class SqbPayServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        payService.pay("130818341921600584", "100", "咖啡", "cashier01", null);
+        payService.pay(payCommand("130818341921600584", 100, "咖啡", "cashier01", null));
 
-        // 验证请求体包含 dynamic_id
-        verify(httpClient).execute(anyString(), contains("130818341921600584"), anyString(), anyString());
+        ArgumentCaptor<PayRequest> captor = ArgumentCaptor.forClass(PayRequest.class);
+        verify(apiTemplate).call(eq("/upay/v2/pay"), captor.capture());
+        assertEquals("130818341921600584", captor.getValue().getDynamicId());
     }
 
     @Test
@@ -200,13 +204,14 @@ class SqbPayServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        payService.pay("code", "9999", "测试", "op", null);
+        payService.pay(payCommand("code", 9999, "测试", "op", null));
 
-        // 金额以分为单位
-        verify(httpClient).execute(anyString(), contains("9999"), anyString(), anyString());
+        ArgumentCaptor<PayRequest> captor = ArgumentCaptor.forClass(PayRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("9999", captor.getValue().getTotalAmount());
     }
 
     @Test
@@ -214,25 +219,29 @@ class SqbPayServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        payService.pay("code", "100", "星巴克咖啡", "op", null);
+        payService.pay(payCommand("code", 100, "星巴克咖啡", "op", null));
 
-        verify(httpClient).execute(anyString(), contains("星巴克咖啡"), anyString(), anyString());
+        ArgumentCaptor<PayRequest> captor = ArgumentCaptor.forClass(PayRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("星巴克咖啡", captor.getValue().getSubject());
     }
 
     @Test
-    void testPayUsesTerminalLevelSigning() throws Exception {
+    void testPayRequestContainsTerminalSn() throws Exception {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        payService.pay("code", "100", "test", "op", null);
+        payService.pay(payCommand("code", 100, "test", "op", null));
 
-        verify(httpClient).execute(anyString(), anyString(), eq("terminal001"), eq("terminalkey001"));
+        ArgumentCaptor<PayRequest> captor = ArgumentCaptor.forClass(PayRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("terminal001", captor.getValue().getTerminalSn());
     }
 
     @Test
@@ -240,12 +249,14 @@ class SqbPayServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        payService.pay("code", "100", "test", "op", "https://example.com/notify");
+        payService.pay(payCommand("code", 100, "test", "op", "https://example.com/notify"));
 
-        verify(httpClient).execute(anyString(), contains("https://example.com/notify"), anyString(), anyString());
+        ArgumentCaptor<PayRequest> captor = ArgumentCaptor.forClass(PayRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("https://example.com/notify", captor.getValue().getNotifyUrl());
     }
 
     // ========== PAY_SUCCESS 但非最终状态的场景 ==========
@@ -261,15 +272,15 @@ class SqbPayServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"PAY_SUCCESS","data":{"order_status":"PAID"}}}
                 """));
         when(queryService.pollByClientSn(anyString())).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = payService.pay("code", "100", "test", "op", null).join();
+        SqbResponse result = payService.pay(payCommand("code", 100, "test", "op", null)).join();
 
         assertEquals("PAID", result.getOrderStatus());
         verify(queryService).pollByClientSn(anyString());

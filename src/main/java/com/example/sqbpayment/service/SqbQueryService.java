@@ -4,8 +4,6 @@ import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
 import com.example.sqbpayment.model.enums.OrderStatus;
 import com.example.sqbpayment.model.request.QueryRequest;
-import com.example.sqbpayment.util.SqbHttpClient;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -27,16 +25,16 @@ public class SqbQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(SqbQueryService.class);
     private static final int POLL_TIMEOUT_SECONDS = 120;
-    private static final int FAST_INTERVAL_MS = 3000;
-    private static final int SLOW_INTERVAL_MS = 10000;
-    private static final int FAST_PHASE_SECONDS = 60;
+    private static final int FAST_INTERVAL_MS = 3_000;
+    private static final int SLOW_INTERVAL_MS = 10_000;
+    private static final long FAST_PHASE_MS = 60_000L;
 
     private final SqbConfig config;
-    private final SqbHttpClient httpClient;
+    private final SqbApiTemplate apiTemplate;
 
-    public SqbQueryService(SqbConfig config, SqbHttpClient httpClient) {
+    public SqbQueryService(SqbConfig config, SqbApiTemplate apiTemplate) {
         this.config = config;
-        this.httpClient = httpClient;
+        this.apiTemplate = apiTemplate;
     }
 
     /**
@@ -46,7 +44,7 @@ public class SqbQueryService {
         QueryRequest request = new QueryRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setClientSn(clientSn);
-        return doQuery(request);
+        return apiTemplate.call("/upay/v2/query", request);
     }
 
     /**
@@ -56,89 +54,54 @@ public class SqbQueryService {
         QueryRequest request = new QueryRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setSn(sn);
-        return doQuery(request);
+        return apiTemplate.call("/upay/v2/query", request);
     }
 
     /**
-     * 异步轮询查询直到获得最终状态
-     * 最终状态：PAID, PAY_CANCELED, REFUNDED, PARTIAL_REFUNDED, CANCELED
-     *
-     * @param clientSn 商户订单号
-     * @return 最终状态的查询结果（异步）
+     * 异步轮询查询直到获得最终状态（通过商户订单号）
      */
     @Async("pollExecutor")
     public CompletableFuture<SqbResponse> pollByClientSn(String clientSn) throws IOException, InterruptedException {
-        return CompletableFuture.completedFuture(doPollByClientSn(clientSn));
+        return CompletableFuture.completedFuture(doPoll(clientSn, false));
     }
 
     /**
-     * 同步轮询（内部使用），在异步线程池中执行
-     */
-    SqbResponse doPollByClientSn(String clientSn) throws IOException, InterruptedException {
-        long startNanos = System.nanoTime();
-        long elapsedMs = 0;
-
-        while (elapsedMs < POLL_TIMEOUT_SECONDS * 1000L) {
-            SqbResponse response = queryByClientSn(clientSn);
-
-            if (response.isCommunicationSuccess()) {
-                String orderStatus = response.getOrderStatus();
-                if (OrderStatus.isFinal(orderStatus)) {
-                    log.info("轮询查询获得最终状态: clientSn={}, status={}", clientSn, orderStatus);
-                    return response;
-                }
-                log.info("订单状态未确定: clientSn={}, status={}, 继续轮询...", clientSn, orderStatus);
-            } else {
-                log.warn("查询请求通信失败，继续轮询: clientSn={}", clientSn);
-            }
-
-            // 前60秒每3秒查询，之后每10秒查询
-            int waitMs = elapsedMs < FAST_PHASE_SECONDS * 1000L ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
-            Thread.sleep(waitMs);
-            elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
-        }
-
-        // 超时，返回最后一次查询结果
-        log.warn("轮询查询超时({}秒): clientSn={}，请人工确认", POLL_TIMEOUT_SECONDS, clientSn);
-        return queryByClientSn(clientSn);
-    }
-
-    /**
-     * 异步轮询查询（通过收钱吧订单号）
+     * 异步轮询查询直到获得最终状态（通过收钱吧订单号）
      */
     @Async("pollExecutor")
     public CompletableFuture<SqbResponse> pollBySn(String sn) throws IOException, InterruptedException {
-        return CompletableFuture.completedFuture(doPollBySn(sn));
+        return CompletableFuture.completedFuture(doPoll(sn, true));
     }
 
     /**
-     * 同步轮询（通过 sn），在异步线程池中执行
+     * 统一轮询实现，消除 doPollByClientSn / doPollBySn 的重复代码
      */
-    SqbResponse doPollBySn(String sn) throws IOException, InterruptedException {
+    SqbResponse doPoll(String identifier, boolean useSn) throws IOException, InterruptedException {
         long startNanos = System.nanoTime();
         long elapsedMs = 0;
         long timeoutMs = POLL_TIMEOUT_SECONDS * 1000L;
 
         while (elapsedMs < timeoutMs) {
-            SqbResponse response = queryBySn(sn);
-            if (response.isCommunicationSuccess() && OrderStatus.isFinal(response.getOrderStatus())) {
-                log.info("轮询查询获得最终状态: sn={}, status={}", sn, response.getOrderStatus());
-                return response;
+            SqbResponse response = useSn ? queryBySn(identifier) : queryByClientSn(identifier);
+
+            if (response.isCommunicationSuccess()) {
+                String orderStatus = response.getOrderStatus();
+                if (OrderStatus.isFinal(orderStatus)) {
+                    log.info("轮询查询获得最终状态: {}={}, status={}", useSn ? "sn" : "clientSn", identifier, orderStatus);
+                    return response;
+                }
+                log.info("订单状态未确定: {}={}, status={}, 继续轮询...", useSn ? "sn" : "clientSn", identifier, orderStatus);
+            } else {
+                log.warn("查询请求通信失败，继续轮询: {}={}", useSn ? "sn" : "clientSn", identifier);
             }
-            int waitMs = elapsedMs < 60_000 ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
+
+            int waitMs = elapsedMs < FAST_PHASE_MS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
             Thread.sleep(waitMs);
             elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         }
 
-        log.warn("轮询查询超时({}秒): sn={}，请人工确认", POLL_TIMEOUT_SECONDS, sn);
-        return queryBySn(sn);
-    }
-
-    private SqbResponse doQuery(QueryRequest request) throws IOException {
-        String requestBody = httpClient.getObjectMapper().writeValueAsString(request);
-        String url = config.getApiBase() + "/upay/v2/query";
-
-        JsonNode response = httpClient.execute(url, requestBody, config.getTerminalSn(), config.getTerminalKey());
-        return new SqbResponse(response);
+        // 超时，返回最后一次查询结果
+        log.warn("轮询查询超时({}秒): {}={}，请人工确认", POLL_TIMEOUT_SECONDS, useSn ? "sn" : "clientSn", identifier);
+        return useSn ? queryBySn(identifier) : queryByClientSn(identifier);
     }
 }

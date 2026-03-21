@@ -3,10 +3,9 @@ package com.example.sqbpayment.service;
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
 import com.example.sqbpayment.model.enums.OrderStatus;
+import com.example.sqbpayment.model.request.RefundCommand;
 import com.example.sqbpayment.model.request.RefundRequest;
 import com.example.sqbpayment.util.ClientSnGenerator;
-import com.example.sqbpayment.util.SqbHttpClient;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,14 +29,14 @@ public class SqbRefundService {
     private static final Logger log = LoggerFactory.getLogger(SqbRefundService.class);
 
     private final SqbConfig config;
-    private final SqbHttpClient httpClient;
+    private final SqbApiTemplate apiTemplate;
     private final SqbQueryService queryService;
     private final ClientSnGenerator clientSnGenerator;
 
-    public SqbRefundService(SqbConfig config, SqbHttpClient httpClient, SqbQueryService queryService,
+    public SqbRefundService(SqbConfig config, SqbApiTemplate apiTemplate, SqbQueryService queryService,
                             ClientSnGenerator clientSnGenerator) {
         this.config = config;
-        this.httpClient = httpClient;
+        this.apiTemplate = apiTemplate;
         this.queryService = queryService;
         this.clientSnGenerator = clientSnGenerator;
     }
@@ -45,32 +44,24 @@ public class SqbRefundService {
     /**
      * 发起退款
      *
-     * @param sn           收钱吧订单号（与 clientSn 二选一）
-     * @param clientSn     商户订单号（与 sn 二选一）
-     * @param refundAmount 退款金额，单位为分
-     * @param operator     操作员
-     * @param refundReason 退款原因（可选）
+     * @param command 退款命令（已通过 Bean Validation 校验）
      * @return 退款结果（可能经过轮询）
      */
-    public CompletableFuture<SqbResponse> refund(String sn, String clientSn, String refundAmount,
-                                                    String operator, String refundReason) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> refund(RefundCommand command) throws IOException, InterruptedException {
+        command.validate();
 
         String refundRequestNo = clientSnGenerator.generateRefundNo();
 
         RefundRequest request = new RefundRequest();
         request.setTerminalSn(config.getTerminalSn());
-        request.setSn(sn);
-        request.setClientSn(clientSn);
+        request.setSn(command.sn());
+        request.setClientSn(command.clientSn());
         request.setRefundRequestNo(refundRequestNo);
-        request.setRefundAmount(refundAmount);
-        request.setOperator(operator);
-        request.setRefundReason(refundReason);
+        request.setRefundAmount(String.valueOf(command.refundAmount()));
+        request.setOperator(command.operator());
+        request.setRefundReason(command.refundReason());
 
-        String requestBody = httpClient.getObjectMapper().writeValueAsString(request);
-        String url = config.getApiBase() + "/upay/v2/refund";
-
-        JsonNode response = httpClient.execute(url, requestBody, config.getTerminalSn(), config.getTerminalKey());
-        SqbResponse sqbResponse = new SqbResponse(response);
+        SqbResponse sqbResponse = apiTemplate.call("/upay/v2/refund", request);
 
         if (!sqbResponse.isCommunicationSuccess()) {
             log.error("退款请求通信失败: {}", sqbResponse);
@@ -94,9 +85,9 @@ public class SqbRefundService {
 
         // REFUND_IN_PROGRESS / REFUND_FAIL_ERROR -> 异步轮询查询
         log.info("退款状态未确定，启动异步轮询: refundRequestNo={}", refundRequestNo);
-        if (sn != null && !sn.isEmpty()) {
-            return queryService.pollBySn(sn);
+        if (command.sn() != null && !command.sn().isEmpty()) {
+            return queryService.pollBySn(command.sn());
         }
-        return queryService.pollByClientSn(clientSn);
+        return queryService.pollByClientSn(command.clientSn());
     }
 }

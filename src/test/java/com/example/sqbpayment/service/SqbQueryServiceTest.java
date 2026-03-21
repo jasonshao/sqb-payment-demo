@@ -2,11 +2,12 @@ package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
-import com.example.sqbpayment.util.SqbHttpClient;
+import com.example.sqbpayment.model.request.QueryRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -22,7 +23,7 @@ class SqbQueryServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Mock
-    private SqbHttpClient httpClient;
+    private SqbApiTemplate apiTemplate;
 
     private SqbConfig config;
     private SqbQueryService queryService;
@@ -34,9 +35,7 @@ class SqbQueryServiceTest {
         config.setTerminalSn("terminal001");
         config.setTerminalKey("terminalkey001");
 
-        when(httpClient.getObjectMapper()).thenReturn(new ObjectMapper());
-
-        queryService = new SqbQueryService(config, httpClient);
+        queryService = new SqbQueryService(config, apiTemplate);
     }
 
     // ========== 单次查询测试 ==========
@@ -58,8 +57,8 @@ class SqbQueryServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(contains("/upay/v2/query"), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(eq("/upay/v2/query"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = queryService.queryByClientSn("order001");
 
@@ -67,8 +66,9 @@ class SqbQueryServiceTest {
         assertEquals("PAID", result.getOrderStatus());
         assertEquals("100", result.getTotalAmount());
 
-        // 验证请求体包含 client_sn
-        verify(httpClient).execute(anyString(), contains("order001"), anyString(), anyString());
+        ArgumentCaptor<QueryRequest> captor = ArgumentCaptor.forClass(QueryRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("order001", captor.getValue().getClientSn());
     }
 
     @Test
@@ -82,34 +82,16 @@ class SqbQueryServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse result = queryService.queryBySn("789284025");
 
         assertEquals("PAID", result.getOrderStatus());
-        verify(httpClient).execute(anyString(), contains("789284025"), anyString(), anyString());
-    }
 
-    @Test
-    void testQueryUsesTerminalLevelSigning() throws Exception {
-        String responseJson = """
-                {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"PAID"}}}
-                """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
-
-        queryService.queryByClientSn("order001");
-
-        verify(httpClient).execute(anyString(), anyString(), eq("terminal001"), eq("terminalkey001"));
-    }
-
-    @Test
-    void testQueryNetworkException() throws Exception {
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenThrow(new IOException("网络超时"));
-
-        assertThrows(IOException.class, () -> queryService.queryByClientSn("order001"));
+        ArgumentCaptor<QueryRequest> captor = ArgumentCaptor.forClass(QueryRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("789284025", captor.getValue().getSn());
     }
 
     @Test
@@ -117,12 +99,22 @@ class SqbQueryServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"PAID"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         queryService.queryByClientSn("order001");
 
-        verify(httpClient).execute(anyString(), contains("terminal001"), anyString(), anyString());
+        ArgumentCaptor<QueryRequest> captor = ArgumentCaptor.forClass(QueryRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("terminal001", captor.getValue().getTerminalSn());
+    }
+
+    @Test
+    void testQueryNetworkException() throws Exception {
+        when(apiTemplate.call(anyString(), any()))
+                .thenThrow(new IOException("网络超时"));
+
+        assertThrows(IOException.class, () -> queryService.queryByClientSn("order001"));
     }
 
     // ========== 轮询测试 ==========
@@ -138,14 +130,13 @@ class SqbQueryServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(paidResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(paidResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
-        // 第一次查询就是最终状态，只应调用一次
-        verify(httpClient, times(1)).execute(anyString(), anyString(), anyString(), anyString());
+        verify(apiTemplate, times(1)).call(anyString(), any());
     }
 
     @Test
@@ -159,13 +150,13 @@ class SqbQueryServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(canceledResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(canceledResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAY_CANCELED", result.getOrderStatus());
-        verify(httpClient, times(1)).execute(anyString(), anyString(), anyString(), anyString());
+        verify(apiTemplate, times(1)).call(anyString(), any());
     }
 
     @Test
@@ -179,8 +170,8 @@ class SqbQueryServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(refundedResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(refundedResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
@@ -196,15 +187,14 @@ class SqbQueryServiceTest {
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"PAID"}}}
                 """;
 
-        // 第一次返回 CREATED，第二次返回 PAID
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(createdResponse))
-                .thenReturn(MAPPER.readTree(paidResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(createdResponse)))
+                .thenReturn(new SqbResponse(MAPPER.readTree(paidResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
-        verify(httpClient, times(2)).execute(anyString(), anyString(), anyString(), anyString());
+        verify(apiTemplate, times(2)).call(anyString(), any());
     }
 
     @Test
@@ -216,14 +206,14 @@ class SqbQueryServiceTest {
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"PAID"}}}
                 """;
 
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(failResponse))
-                .thenReturn(MAPPER.readTree(paidResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(failResponse)))
+                .thenReturn(new SqbResponse(MAPPER.readTree(paidResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
         assertEquals("PAID", result.getOrderStatus());
-        verify(httpClient, times(2)).execute(anyString(), anyString(), anyString(), anyString());
+        verify(apiTemplate, times(2)).call(anyString(), any());
     }
 
     @Test
@@ -235,9 +225,9 @@ class SqbQueryServiceTest {
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"PAID"}}}
                 """;
 
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(errorResponse))
-                .thenReturn(MAPPER.readTree(paidResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(errorResponse)))
+                .thenReturn(new SqbResponse(MAPPER.readTree(paidResponse)));
 
         SqbResponse result = queryService.pollByClientSn("order001").join();
 
@@ -249,8 +239,8 @@ class SqbQueryServiceTest {
         String createdResponse = """
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"CREATED"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(createdResponse));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(createdResponse)));
 
         Thread.currentThread().interrupt();
         assertThrows(InterruptedException.class, () -> queryService.pollByClientSn("order001"));

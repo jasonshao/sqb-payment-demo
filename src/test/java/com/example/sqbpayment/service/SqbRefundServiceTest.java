@@ -2,12 +2,14 @@ package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
 import com.example.sqbpayment.model.SqbResponse;
+import com.example.sqbpayment.model.request.RefundCommand;
+import com.example.sqbpayment.model.request.RefundRequest;
 import com.example.sqbpayment.util.ClientSnGenerator;
-import com.example.sqbpayment.util.SqbHttpClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -24,7 +26,7 @@ class SqbRefundServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Mock
-    private SqbHttpClient httpClient;
+    private SqbApiTemplate apiTemplate;
 
     @Mock
     private SqbQueryService queryService;
@@ -42,10 +44,13 @@ class SqbRefundServiceTest {
         config.setTerminalSn("terminal001");
         config.setTerminalKey("terminalkey001");
 
-        when(httpClient.getObjectMapper()).thenReturn(new ObjectMapper());
-        when(clientSnGenerator.generateRefundNo()).thenReturn("REF20260320000000000001");
+        lenient().when(clientSnGenerator.generateRefundNo()).thenReturn("REF20260320000000000001");
 
-        refundService = new SqbRefundService(config, httpClient, queryService, clientSnGenerator);
+        refundService = new SqbRefundService(config, apiTemplate, queryService, clientSnGenerator);
+    }
+
+    private RefundCommand refundCommand(String sn, String clientSn, long refundAmount, String operator, String reason) {
+        return new RefundCommand(sn, clientSn, refundAmount, operator, reason);
     }
 
     // ========== 全额退款成功 ==========
@@ -67,10 +72,10 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(contains("/upay/v2/refund"), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(eq("/upay/v2/refund"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = refundService.refund("789284025", null, "100", "cashier01", "顾客要求退款").join();
+        SqbResponse result = refundService.refund(refundCommand("789284025", null, 100, "cashier01", "顾客要求退款")).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
         assertEquals("100", result.getRefundedAmount());
@@ -94,10 +99,10 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = refundService.refund(null, "order001", "50", "cashier01", null).join();
+        SqbResponse result = refundService.refund(refundCommand(null, "order001", 50, "cashier01", null)).join();
 
         assertEquals("PARTIAL_REFUNDED", result.getOrderStatus());
         assertEquals("50", result.getRefundedAmount());
@@ -117,10 +122,10 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = refundService.refund("sn001", null, "999", "op", null).join();
+        SqbResponse result = refundService.refund(refundCommand("sn001", null, 999, "op", null)).join();
 
         assertEquals("REFUND_FAIL", result.getBizResultCode());
         verifyNoInteractions(queryService);
@@ -139,8 +144,8 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED"}}}
@@ -148,7 +153,7 @@ class SqbRefundServiceTest {
         when(queryService.pollByClientSn("order001")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
         // 使用 clientSn 查询（sn 为 null）
-        SqbResponse result = refundService.refund(null, "order001", "100", "op", null).join();
+        SqbResponse result = refundService.refund(refundCommand(null, "order001", 100, "op", null)).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
         verify(queryService).pollByClientSn("order001");
@@ -165,15 +170,15 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(contains("/upay/v2/refund"), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(eq("/upay/v2/refund"), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED","sn":"sn001"}}}
                 """));
         when(queryService.pollBySn("sn001")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = refundService.refund("sn001", null, "100", "op", null).join();
+        SqbResponse result = refundService.refund(refundCommand("sn001", null, 100, "op", null)).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
         verify(queryService).pollBySn("sn001");
@@ -190,15 +195,15 @@ class SqbRefundServiceTest {
                     }
                 }
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
         SqbResponse pollResult = new SqbResponse(MAPPER.readTree("""
                 {"result_code":"200","biz_response":{"result_code":"SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """));
         when(queryService.pollByClientSn("order002")).thenReturn(CompletableFuture.completedFuture(pollResult));
 
-        SqbResponse result = refundService.refund(null, "order002", "100", "op", null).join();
+        SqbResponse result = refundService.refund(refundCommand(null, "order002", 100, "op", null)).join();
 
         assertEquals("REFUNDED", result.getOrderStatus());
     }
@@ -210,10 +215,10 @@ class SqbRefundServiceTest {
         String responseJson = """
                 {"result_code":"500","error_message":"服务器错误"}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        SqbResponse result = refundService.refund("sn", null, "100", "op", null).join();
+        SqbResponse result = refundService.refund(refundCommand("sn", null, 100, "op", null)).join();
 
         assertFalse(result.isCommunicationSuccess());
         verifyNoInteractions(queryService);
@@ -221,11 +226,11 @@ class SqbRefundServiceTest {
 
     @Test
     void testRefundNetworkException() throws Exception {
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
+        when(apiTemplate.call(anyString(), any()))
                 .thenThrow(new IOException("连接超时"));
 
         assertThrows(IOException.class,
-                () -> refundService.refund("sn", null, "100", "op", null));
+                () -> refundService.refund(refundCommand("sn", null, 100, "op", null)));
     }
 
     // ========== 请求参数验证 ==========
@@ -235,12 +240,14 @@ class SqbRefundServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"REFUND_SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        refundService.refund("sn001", null, "250", "op", null);
+        refundService.refund(refundCommand("sn001", null, 250, "op", null));
 
-        verify(httpClient).execute(anyString(), contains("250"), anyString(), anyString());
+        ArgumentCaptor<RefundRequest> captor = ArgumentCaptor.forClass(RefundRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("250", captor.getValue().getRefundAmount());
     }
 
     @Test
@@ -248,13 +255,14 @@ class SqbRefundServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"REFUND_SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        refundService.refund("sn001", null, "100", "op", "退款原因");
+        refundService.refund(refundCommand("sn001", null, 100, "op", "退款原因"));
 
-        // 请求体应包含 refund_request_no（自动生成的，以 REF 开头）
-        verify(httpClient).execute(anyString(), contains("REF"), anyString(), anyString());
+        ArgumentCaptor<RefundRequest> captor = ArgumentCaptor.forClass(RefundRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertTrue(captor.getValue().getRefundRequestNo().startsWith("REF"));
     }
 
     @Test
@@ -262,24 +270,36 @@ class SqbRefundServiceTest {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"REFUND_SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        refundService.refund("sn001", null, "100", "op", "顾客要求退款");
+        refundService.refund(refundCommand("sn001", null, 100, "op", "顾客要求退款"));
 
-        verify(httpClient).execute(anyString(), contains("顾客要求退款"), anyString(), anyString());
+        ArgumentCaptor<RefundRequest> captor = ArgumentCaptor.forClass(RefundRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("顾客要求退款", captor.getValue().getRefundReason());
     }
 
     @Test
-    void testRefundUsesTerminalLevelSigning() throws Exception {
+    void testRefundRequestContainsTerminalSn() throws Exception {
         String responseJson = """
                 {"result_code":"200","biz_response":{"result_code":"REFUND_SUCCESS","data":{"order_status":"REFUNDED"}}}
                 """;
-        when(httpClient.execute(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(MAPPER.readTree(responseJson));
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
 
-        refundService.refund("sn001", null, "100", "op", null);
+        refundService.refund(refundCommand("sn001", null, 100, "op", null));
 
-        verify(httpClient).execute(anyString(), anyString(), eq("terminal001"), eq("terminalkey001"));
+        ArgumentCaptor<RefundRequest> captor = ArgumentCaptor.forClass(RefundRequest.class);
+        verify(apiTemplate).call(anyString(), captor.capture());
+        assertEquals("terminal001", captor.getValue().getTerminalSn());
+    }
+
+    // ========== sn/clientSn 校验 ==========
+
+    @Test
+    void testRefundMissingSnAndClientSn() {
+        assertThrows(IllegalArgumentException.class,
+                () -> refundService.refund(refundCommand(null, null, 100, "op", null)));
     }
 }

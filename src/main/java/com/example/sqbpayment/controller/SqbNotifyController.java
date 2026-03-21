@@ -14,8 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 异步回调通知处理器
@@ -34,14 +36,22 @@ public class SqbNotifyController {
 
     private static final Logger log = LoggerFactory.getLogger(SqbNotifyController.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final int MAX_CACHE_SIZE = 10_000;
 
     /** 需要关注的最终状态 */
     private static final Set<String> FINAL_STATUSES = Set.of(
             "PAID", "PAY_CANCELED", "REFUNDED", "PARTIAL_REFUNDED", "CANCELED"
     );
 
-    /** 幂等记录：已处理过的订单号 -> 处理时间戳（防止重复处理） */
-    private final ConcurrentHashMap<String, Long> processedOrders = new ConcurrentHashMap<>();
+    /** 幂等记录：有界 LRU 缓存，防止无限增长导致内存泄漏 */
+    private final Map<String, Long> processedOrders = Collections.synchronizedMap(
+            new LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                    return size() > MAX_CACHE_SIZE;
+                }
+            }
+    );
 
     private final SqbConfig config;
 
