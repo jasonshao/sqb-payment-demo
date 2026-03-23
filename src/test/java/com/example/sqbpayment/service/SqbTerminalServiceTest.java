@@ -1,6 +1,8 @@
 package com.example.sqbpayment.service;
 
 import com.example.sqbpayment.config.SqbConfig;
+import com.example.sqbpayment.credential.TerminalCredentialEntity;
+import com.example.sqbpayment.credential.TerminalCredentialRepository;
 import com.example.sqbpayment.model.SqbResponse;
 import com.example.sqbpayment.model.request.ActivateRequest;
 import com.example.sqbpayment.model.request.CheckinRequest;
@@ -26,6 +28,9 @@ class SqbTerminalServiceTest {
     @Mock
     private SqbApiTemplate apiTemplate;
 
+    @Mock
+    private TerminalCredentialRepository credentialRepository;
+
     private SqbConfig config;
     private SqbTerminalService service;
 
@@ -40,7 +45,7 @@ class SqbTerminalServiceTest {
         config.setTerminalKey("terminalkey001");
         config.setDeviceId("device001");
 
-        service = new SqbTerminalService(config, apiTemplate);
+        service = new SqbTerminalService(config, apiTemplate, credentialRepository);
     }
 
     // ========== 激活测试 ==========
@@ -235,5 +240,75 @@ class SqbTerminalServiceTest {
         ArgumentCaptor<CheckinRequest> captor = ArgumentCaptor.forClass(CheckinRequest.class);
         verify(apiTemplate).call(anyString(), captor.capture());
         assertEquals("device001", captor.getValue().getDeviceId());
+    }
+
+    // ========== 凭证持久化测试 ==========
+
+    @Test
+    void testActivateSuccessPersistsCredentials() throws Exception {
+        String responseJson = """
+                {"result_code":"200","biz_response":{"result_code":"ACTIVATE_SUCCESS","data":{"terminal_sn":"new_sn","terminal_key":"new_key"}}}
+                """;
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
+
+        service.activate("code", "device001", null);
+
+        ArgumentCaptor<TerminalCredentialEntity> captor = ArgumentCaptor.forClass(TerminalCredentialEntity.class);
+        verify(credentialRepository).save(captor.capture());
+        assertEquals("device001", captor.getValue().getDeviceId());
+        assertEquals("new_sn", captor.getValue().getTerminalSn());
+        assertEquals("new_key", captor.getValue().getTerminalKey());
+    }
+
+    @Test
+    void testActivateFailureDoesNotPersist() throws Exception {
+        String responseJson = """
+                {"result_code":"200","biz_response":{"result_code":"ACTIVATE_FAIL","error_message":"invalid"}}
+                """;
+        when(apiTemplate.callAsVendor(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
+
+        service.activate("bad", "device", null);
+
+        verify(credentialRepository, never()).save(any());
+    }
+
+    @Test
+    void testCheckinSuccessPersistsNewKey() throws Exception {
+        String responseJson = """
+                {"result_code":"200","biz_response":{"result_code":"TERMINAL_CHECKIN_SUCCESS","data":{"terminal_sn":"terminal001","terminal_key":"rotated_key"}}}
+                """;
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
+
+        service.checkin();
+
+        ArgumentCaptor<TerminalCredentialEntity> captor = ArgumentCaptor.forClass(TerminalCredentialEntity.class);
+        verify(credentialRepository).save(captor.capture());
+        assertEquals("rotated_key", captor.getValue().getTerminalKey());
+    }
+
+    @Test
+    void testCheckinNetworkFailureRollsBackKey() throws Exception {
+        when(apiTemplate.call(anyString(), any()))
+                .thenThrow(new IOException("网络超时"));
+
+        assertThrows(IOException.class, () -> service.checkin());
+        assertEquals("terminalkey001", config.getTerminalKey());
+        verify(credentialRepository, never()).save(any());
+    }
+
+    @Test
+    void testCheckinFailureDoesNotPersist() throws Exception {
+        String responseJson = """
+                {"result_code":"200","biz_response":{"result_code":"TERMINAL_CHECKIN_FAIL","error_message":"签名错误"}}
+                """;
+        when(apiTemplate.call(anyString(), any()))
+                .thenReturn(new SqbResponse(MAPPER.readTree(responseJson)));
+
+        service.checkin();
+
+        verify(credentialRepository, never()).save(any());
     }
 }

@@ -15,7 +15,8 @@ public record OrderResult(
         String netAmount,
         String refundedAmount,
         String tradeNo,
-        String finishTime
+        String finishTime,
+        String qrCode
 ) {
     public static OrderResult from(SqbResponse r) {
         return new OrderResult(
@@ -26,7 +27,8 @@ public record OrderResult(
                 emptyToNull(r.getNetAmount()),
                 emptyToNull(r.getRefundedAmount()),
                 emptyToNull(r.getTradeNo()),
-                emptyToNull(r.getFinishTime())
+                emptyToNull(r.getFinishTime()),
+                emptyToNull(r.getQrCode())
         );
     }
 

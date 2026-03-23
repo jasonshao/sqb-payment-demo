@@ -38,6 +38,12 @@ sqb:
   # 设备唯一标识
   device-id: ${SQB_DEVICE_ID:}
 
+  # 回调通知 RSA 公钥（Base64 编码）
+  notify-public-key: ${SQB_NOTIFY_PUBLIC_KEY:}
+
+  # 签到定时 cron 表达式（默认每天 00:05）
+  checkin-cron: "0 5 0 * * ?"
+
 logging:
   level:
     com.example.sqbpayment: DEBUG

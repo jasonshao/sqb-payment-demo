@@ -1,13 +1,15 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.config.SqbConfig;
-import com.example.sqbpayment.util.SqbSignUtil;
+import com.example.sqbpayment.util.SqbRsaUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -61,28 +63,30 @@ public class SqbNotifyController {
 
     /**
      * 接收收钱吧异步回调通知
-     * 返回纯文本 "success" 表示接收成功，否则收钱吧会重试
+     * 返回纯文本 "success" 表示接收成功，验签失败返回 HTTP 403
      */
     @PostMapping(produces = MediaType.TEXT_PLAIN_VALUE)
-    public String handleNotify(HttpServletRequest request) throws IOException {
+    public ResponseEntity<String> handleNotify(HttpServletRequest request) throws IOException {
         // 读取请求体
         String requestBody = new String(request.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         log.info("收到收钱吧回调通知: {}", requestBody);
 
-        // 验证签名
+        // 验证 RSA 签名
         String authorization = request.getHeader("Authorization");
         if (authorization == null || !authorization.contains(" ")) {
             log.warn("回调通知签名缺失");
-            return "fail";
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("signature verification failed");
         }
 
         String[] parts = authorization.split(" ", 2);
         String receivedSn = parts[0];
         String receivedSign = parts[1];
 
-        if (!SqbSignUtil.verifySign(requestBody, config.getTerminalKey(), receivedSign)) {
+        String publicKey = config.getNotifyPublicKey();
+        if (publicKey == null || publicKey.isBlank()
+                || !SqbRsaUtil.verifySign(requestBody, publicKey, receivedSign)) {
             log.warn("回调通知签名验证失败: sn={}", receivedSn);
-            return "fail";
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("signature verification failed");
         }
 
         // 解析通知内容
@@ -99,16 +103,14 @@ public class SqbNotifyController {
             Long previous = processedOrders.putIfAbsent(deduplicationKey, System.currentTimeMillis());
             if (previous != null) {
                 log.info("回调通知重复，已忽略: key={}, orderStatus={}", deduplicationKey, orderStatus);
-                return "success";
+                return ResponseEntity.ok("success");
             }
         }
 
         if (FINAL_STATUSES.contains(orderStatus)) {
             log.info("订单到达最终状态: clientSn={}, status={}", clientSn, orderStatus);
-            // TODO: 更新本地订单状态
         }
 
-        // 返回 "success" 告知收钱吧已成功处理
-        return "success";
+        return ResponseEntity.ok("success");
     }
 }
