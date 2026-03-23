@@ -31,6 +31,9 @@ public class SqbConfig {
     /** 设备唯一标识 */
     private String deviceId;
 
+    /** 收钱吧回调通知 RSA 公钥（Base64） */
+    private String notifyPublicKey;
+
     public String getApiBase() {
         return apiBase;
     }
@@ -85,5 +88,13 @@ public class SqbConfig {
 
     public void setDeviceId(String deviceId) {
         this.deviceId = deviceId;
+    }
+
+    public String getNotifyPublicKey() {
+        return notifyPublicKey;
+    }
+
+    public void setNotifyPublicKey(String notifyPublicKey) {
+        this.notifyPublicKey = notifyPublicKey;
     }
 }

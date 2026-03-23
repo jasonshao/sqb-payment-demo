@@ -102,6 +102,11 @@ public class SqbResponse {
         return getData().path("refunded_amount").asText("");
     }
 
+    /** 预创建二维码（precreate 返回） */
+    public String getQrCode() {
+        return getData().path("qr_code").asText("");
+    }
+
     public JsonNode getRawResponse() {
         return rawResponse;
     }
