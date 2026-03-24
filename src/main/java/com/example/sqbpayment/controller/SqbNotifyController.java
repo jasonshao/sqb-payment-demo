@@ -16,10 +16,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 异步回调通知处理器
@@ -39,21 +39,15 @@ public class SqbNotifyController {
     private static final Logger log = LoggerFactory.getLogger(SqbNotifyController.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_CACHE_SIZE = 10_000;
+    private static final long TTL_MILLIS = 24 * 60 * 60 * 1000L; // 24 hours
 
     /** 需要关注的最终状态 */
     private static final Set<String> FINAL_STATUSES = Set.of(
             "PAID", "PAY_CANCELED", "REFUNDED", "PARTIAL_REFUNDED", "CANCELED"
     );
 
-    /** 幂等记录：有界 LRU 缓存，防止无限增长导致内存泄漏 */
-    private final Map<String, Long> processedOrders = Collections.synchronizedMap(
-            new LinkedHashMap<>(256, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
-                    return size() > MAX_CACHE_SIZE;
-                }
-            }
-    );
+    /** 幂等记录：ConcurrentHashMap + TTL，超过 24 小时的条目会被清理 */
+    private final ConcurrentHashMap<String, Long> processedOrders = new ConcurrentHashMap<>();
 
     private final SqbConfig config;
 
@@ -100,10 +94,15 @@ public class SqbNotifyController {
         // 幂等处理：使用 sn 作为去重键，putIfAbsent 保证原子性
         String deduplicationKey = sn.isEmpty() ? clientSn : sn;
         if (!deduplicationKey.isEmpty()) {
-            Long previous = processedOrders.putIfAbsent(deduplicationKey, System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+            Long previous = processedOrders.putIfAbsent(deduplicationKey, now);
             if (previous != null) {
                 log.info("回调通知重复，已忽略: key={}, orderStatus={}", deduplicationKey, orderStatus);
                 return ResponseEntity.ok("success");
+            }
+            // 当缓存超过上限时，清理过期条目（超过 24 小时）
+            if (processedOrders.size() > MAX_CACHE_SIZE) {
+                cleanExpiredEntries(now);
             }
         }
 
@@ -112,5 +111,18 @@ public class SqbNotifyController {
         }
 
         return ResponseEntity.ok("success");
+    }
+
+    /**
+     * 清理过期的幂等记录（超过 TTL 的条目）
+     */
+    private void cleanExpiredEntries(long now) {
+        Iterator<Map.Entry<String, Long>> it = processedOrders.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, Long> entry = it.next();
+            if (now - entry.getValue() > TTL_MILLIS) {
+                it.remove();
+            }
+        }
     }
 }

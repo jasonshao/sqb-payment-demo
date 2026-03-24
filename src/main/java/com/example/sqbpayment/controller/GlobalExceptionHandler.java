@@ -61,4 +61,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResult.fail("请求被中断"));
     }
+
+    /**
+     * 兜底异常处理：捕获所有未被上方特定处理器匹配的异常
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResult<Void>> handleUnexpectedException(Exception e) {
+        log.error("未预期的服务异常", e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResult.fail("服务内部错误"));
+    }
 }

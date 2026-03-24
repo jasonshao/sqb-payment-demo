@@ -168,6 +168,32 @@ class SqbNotifyControllerTest {
     // ========== 回调报文解析 ==========
 
     @Test
+    void testDuplicateNotificationIsIdempotent() throws Exception {
+        String body = """
+                {"sn":"DUP001","client_sn":"orderDup","order_status":"PAID","status":"PAID","total_amount":"100"}
+                """.trim();
+
+        String sign = rsaSign(body);
+        String authorization = TERMINAL_SN + " " + sign;
+
+        // 第一次调用
+        mockMvc.perform(post("/api/notify")
+                        .content(body)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", authorization))
+                .andExpect(status().isOk())
+                .andExpect(content().string("success"));
+
+        // 第二次调用（重复通知）应幂等返回 success
+        mockMvc.perform(post("/api/notify")
+                        .content(body)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", authorization))
+                .andExpect(status().isOk())
+                .andExpect(content().string("success"));
+    }
+
+    @Test
     void testNotifyWithFallbackToStatusField() throws Exception {
         String body = """
                 {"sn":"789284029","client_sn":"order005","status":"PAID"}

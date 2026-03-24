@@ -49,7 +49,9 @@ public final class SqbSignUtil {
      */
     public static boolean verifySign(String requestBody, String key, String receivedSign) {
         String expectedSign = sign(requestBody, key);
-        return expectedSign.equals(receivedSign);
+        return MessageDigest.isEqual(
+                expectedSign.getBytes(StandardCharsets.UTF_8),
+                receivedSign.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String bytesToHex(byte[] bytes) {

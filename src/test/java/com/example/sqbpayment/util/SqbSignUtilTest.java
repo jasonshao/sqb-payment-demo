@@ -109,4 +109,16 @@ class SqbSignUtilTest {
 
         assertFalse(SqbSignUtil.verifySign(body, "wrong_key", sign));
     }
+
+    @Test
+    void testVerifySignWithEdgeCaseInputs() {
+        String body = "{\"test\":true}";
+        String key = "key";
+        String correctSign = SqbSignUtil.sign(body, key);
+
+        assertTrue(SqbSignUtil.verifySign(body, key, correctSign));
+        // 短字符串和空字符串不应抛异常
+        assertFalse(SqbSignUtil.verifySign(body, key, "short"));
+        assertFalse(SqbSignUtil.verifySign(body, key, ""));
+    }
 }
