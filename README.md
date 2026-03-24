@@ -18,7 +18,7 @@ src/main/java/com/example/sqbpayment/
 ├── SqbPaymentApplication.java              # 启动类（@EnableScheduling, @EnableAsync）
 ├── config/
 │   ├── SqbConfig.java                      # 配置类（vendor/terminal 凭证，volatile 字段）
-│   └── AsyncConfig.java                    # 异步轮询线程池（core=8, max=32）
+│   └── AsyncConfig.java                    # 异步轮询线程池（core=8, max=32, CallerRunsPolicy）
 ├── controller/
 │   ├── GlobalExceptionHandler.java         # 全局异常处理（@RestControllerAdvice）
 │   ├── SqbTerminalController.java          # 终端激活 & 签到
@@ -27,7 +27,7 @@ src/main/java/com/example/sqbpayment/
 │   ├── SqbQueryController.java            # 订单查询
 │   ├── SqbRefundController.java           # 退款
 │   ├── SqbCancelController.java           # 撤单
-│   └── SqbNotifyController.java           # 异步回调通知（RSA 验签，幂等 LRU 缓存）
+│   └── SqbNotifyController.java           # 异步回调通知（RSA 验签，幂等 TTL 缓存）
 ├── credential/
 │   ├── TerminalCredentialEntity.java       # 终端凭证 JPA 实体
 │   └── TerminalCredentialRepository.java   # 终端凭证 Repository
@@ -68,9 +68,9 @@ src/main/java/com/example/sqbpayment/
 │   ├── Segment.java                       # ID 号段容器
 │   └── SegmentBuffer.java                 # 双缓冲持有者
 └── util/
-    ├── SqbSignUtil.java                   # MD5 签名工具
-    ├── SqbRsaUtil.java                    # RSA SHA256WithRSA 验签工具
-    ├── SqbHttpClient.java                 # HTTP 客户端（Spring RestClient）
+    ├── SqbSignUtil.java                   # MD5 签名工具（常量时间比较）
+    ├── SqbRsaUtil.java                    # RSA SHA256WithRSA 验签工具（含异常日志）
+    ├── SqbHttpClient.java                 # HTTP 客户端（敏感数据 DEBUG 级日志）
     └── ClientSnGenerator.java             # 全局唯一流水号生成器（基于 Leaf-segment）
 ```
 
@@ -162,6 +162,7 @@ apiTemplate.callAsVendor("/terminal/activate", activateRequest);
 | `IllegalArgumentException` | 400 | 业务参数校验失败 |
 | `IOException` | 502 | 通信异常 |
 | `InterruptedException` | 500 | 请求被中断 |
+| `Exception`（兜底） | 500 | 未预期的服务异常 |
 
 ### 终端凭证持久化
 
@@ -228,7 +229,7 @@ HTTP 响应
 | 慢速阶段 | 60 ~ 120 秒 | 每 10 秒 |
 | 超时 | > 120 秒 | 返回最后查询结果 |
 
-轮询在独立线程池 `pollExecutor`（core=8, max=32, queue=128）中执行。
+轮询在独立线程池 `pollExecutor`（core=8, max=32, queue=128, `CallerRunsPolicy`）中执行。
 
 ### 订单终态
 
@@ -269,11 +270,26 @@ CANCEL_ERROR   → 自动轮询查询确认最终状态
 
 ### 回调通知幂等处理
 
-`SqbNotifyController` 使用有界 LRU 缓存（最大 10,000 条）防止重复处理：
+`SqbNotifyController` 使用 `ConcurrentHashMap` + TTL（24 小时）防止重复处理：
 
 - 以订单 `sn` 为去重 key（`putIfAbsent` 原子操作）
-- 超过上限自动淘汰最久未访问的记录，防止内存泄漏
+- 条目超过 24 小时自动过期清理，缓存上限 10,000 条
 - 收钱吧回调重试间隔：1s → 5s → 30s → 600s
+
+### 安全加固
+
+项目实施了多项安全最佳实践：
+
+| 措施 | 说明 |
+|------|------|
+| **常量时间签名比较** | `SqbSignUtil.verifySign()` 使用 `MessageDigest.isEqual()` 防止时序攻击 |
+| **敏感数据日志保护** | `SqbHttpClient` 请求/响应体仅在 DEBUG 级别输出，INFO 仅记录 URL 和 result_code |
+| **RSA 验签异常日志** | `SqbRsaUtil` 验签失败时记录 WARN 日志，便于问题排查 |
+| **线程池拒绝策略** | `pollExecutor` 使用 `CallerRunsPolicy`，队列满时由调用线程执行，避免任务丢失 |
+| **事务一致性** | `LeafSegmentService.loadSegmentFromDb()` 使用 `@Transactional` 确保 UPDATE + SELECT 原子性 |
+| **启动配置校验** | `SqbConfig` 实现 `InitializingBean`，启动时校验必要配置并输出 WARN |
+| **兜底异常处理** | `GlobalExceptionHandler` 包含 `Exception.class` 兜底处理器，返回统一 `ApiResult` 格式 |
+| **回调幂等 TTL** | 回调去重缓存使用 24 小时 TTL 过期机制，替代简单 LRU 淘汰 |
 
 ## 配置
 
@@ -355,14 +371,15 @@ curl -X POST http://localhost:8080/api/cancel \
 
 ## 单元测试
 
-项目包含 134 个单元测试，覆盖全部业务功能：
+项目包含 138 个单元测试，覆盖全部业务功能：
 
 | 分类 | 测试类 | 测试数 |
 |------|--------|--------|
-| 工具类 | `SqbSignUtilTest`, `SqbRsaUtilTest`, `ClientSnGeneratorTest` | 21 |
+| 工具类 | `SqbSignUtilTest`, `SqbRsaUtilTest`, `ClientSnGeneratorTest` | 22 |
 | 模型层 | `OrderStatusTest`, `SqbResponseTest` | 21 |
 | 服务层 | `SqbTerminalServiceTest`, `SqbPayServiceTest`, `SqbQueryServiceTest`, `SqbRefundServiceTest`, `SqbPrecreateServiceTest`, `SqbCancelServiceTest` | 70 |
-| 控制器 | `SqbNotifyControllerTest`, `SqbPrecreateControllerTest`, `SqbCancelControllerTest` | 14 |
+| 控制器 | `SqbNotifyControllerTest`, `SqbPrecreateControllerTest`, `SqbCancelControllerTest`, `GlobalExceptionHandlerTest` | 17 |
+| 配置 | `AsyncConfigTest` | 1 |
 | 调度器 | `CheckinSchedulerTest` | 3 |
 | ID 生成 | `LeafSegmentServiceTest` | 5 |
 
