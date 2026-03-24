@@ -1,5 +1,8 @@
 package com.example.sqbpayment.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
@@ -8,7 +11,9 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @ConfigurationProperties(prefix = "sqb")
-public class SqbConfig {
+public class SqbConfig implements InitializingBean {
+
+    private static final Logger log = LoggerFactory.getLogger(SqbConfig.class);
 
     /** API 域名 */
     private String apiBase = "https://vsi-api.shouqianba.com";
@@ -96,5 +101,18 @@ public class SqbConfig {
 
     public void setNotifyPublicKey(String notifyPublicKey) {
         this.notifyPublicKey = notifyPublicKey;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        if (vendorSn == null || vendorSn.isBlank()) {
+            log.warn("sqb.vendor-sn 未配置，终端激活接口将不可用");
+        }
+        if (vendorKey == null || vendorKey.isBlank()) {
+            log.warn("sqb.vendor-key 未配置，终端激活接口将不可用");
+        }
+        if (appId == null || appId.isBlank()) {
+            log.warn("sqb.app-id 未配置，终端激活接口将不可用");
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.example.sqbpayment.leaf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -126,6 +127,7 @@ public class LeafSegmentService {
     /**
      * 从数据库加载一个号段到指定 Segment
      */
+    @Transactional
     void loadSegmentFromDb(SegmentBuffer buffer, Segment segment) {
         String bizTag = buffer.getBizTag();
 

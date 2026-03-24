@@ -1,5 +1,8 @@
 package com.example.sqbpayment.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -12,6 +15,8 @@ import java.util.Base64;
  * 用于异步回调通知的签名验证（SHA256WithRSA）
  */
 public final class SqbRsaUtil {
+
+    private static final Logger log = LoggerFactory.getLogger(SqbRsaUtil.class);
 
     private SqbRsaUtil() {
     }
@@ -32,6 +37,7 @@ public final class SqbRsaUtil {
             signature.update(data.getBytes(StandardCharsets.UTF_8));
             return signature.verify(Base64.getDecoder().decode(signatureBase64));
         } catch (Exception e) {
+            log.warn("RSA签名验证异常", e);
             return false;
         }
     }

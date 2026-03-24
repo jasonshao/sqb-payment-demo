@@ -63,7 +63,8 @@ public class SqbHttpClient {
     public JsonNode execute(String url, String requestBody, String sn, String key) throws IOException {
         String authorization = SqbSignUtil.buildAuthorization(sn, requestBody, key);
 
-        log.info("收钱吧请求: URL={}, Body={}", url, requestBody);
+        log.info("收钱吧请求: URL={}", url);
+        log.debug("收钱吧请求详情: URL={}, Body={}", url, requestBody);
 
         String responseBody = restClient.post()
                 .uri(url)
@@ -73,9 +74,12 @@ public class SqbHttpClient {
                 .retrieve()
                 .body(String.class);
 
-        log.info("收钱吧响应: Body={}", responseBody);
+        log.debug("收钱吧响应详情: Body={}", responseBody);
 
-        return objectMapper.readTree(responseBody);
+        JsonNode responseNode = objectMapper.readTree(responseBody);
+        log.info("收钱吧响应: URL={}, result_code={}", url, responseNode.path("result_code").asText("N/A"));
+
+        return responseNode;
     }
 
     public ObjectMapper getObjectMapper() {
