@@ -1,7 +1,7 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.config.SqbConfig;
-import com.example.sqbpayment.util.SqbRsaUtil;
+import com.example.sqbpayment.sdk.signing.SqbRsaUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;

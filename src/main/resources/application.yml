@@ -46,4 +46,4 @@ sqb:
 
 logging:
   level:
-    com.example.sqbpayment: DEBUG
+    com.example.sqbpayment: INFO

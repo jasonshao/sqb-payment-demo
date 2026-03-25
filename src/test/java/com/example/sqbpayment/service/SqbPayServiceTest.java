@@ -13,6 +13,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.sqbpayment.sdk.exception.SqbApiConnectionException;
+
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
@@ -176,9 +178,9 @@ class SqbPayServiceTest {
     @Test
     void testPayNetworkException() throws Exception {
         when(apiTemplate.call(anyString(), any()))
-                .thenThrow(new IOException("连接超时"));
+                .thenThrow(new SqbApiConnectionException("连接超时", new IOException("连接超时")));
 
-        assertThrows(IOException.class,
+        assertThrows(SqbApiConnectionException.class,
                 () -> payService.pay(payCommand("code", 100, "test", "op", null)));
     }
 

@@ -7,8 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-
 /**
  * 定时签到调度器
  * 每天自动执行终端签到，更新 terminal_key
@@ -34,7 +32,7 @@ public class CheckinScheduler {
             } else {
                 log.error("定时签到失败: {}", response);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("定时签到异常", e);
         }
     }

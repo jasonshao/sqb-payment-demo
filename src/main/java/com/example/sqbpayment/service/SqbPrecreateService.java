@@ -10,18 +10,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * 预创建支付服务（C2B / 客扫商户码）
- *
- * 核心流程：
- * 1. 收银系统组装请求参数（含 payway）
- * 2. POST 到 /upay/v2/precreate
- * 3. 解析三层响应：通信层 -> 业务层 -> 订单状态
- * 4. 成功时返回 qr_code 供客户扫码
- * 5. 非最终状态时启动轮询查询
  */
 @Service
 public class SqbPrecreateService {
@@ -41,13 +33,7 @@ public class SqbPrecreateService {
         this.clientSnGenerator = clientSnGenerator;
     }
 
-    /**
-     * 发起预创建支付
-     *
-     * @param command 预创建命令（已通过 Bean Validation 校验）
-     * @return 预创建结果（包含 qr_code 或经过轮询）
-     */
-    public CompletableFuture<SqbResponse> precreate(PrecreateCommand command) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> precreate(PrecreateCommand command) {
         String clientSn = clientSnGenerator.generate();
 
         PrecreateRequest request = new PrecreateRequest();
@@ -81,7 +67,6 @@ public class SqbPrecreateService {
             }
         }
 
-        // PRECREATE_IN_PROGRESS / 非最终状态 -> 异步轮询
         log.info("预创建状态未确定，启动异步轮询查询: clientSn={}, bizResultCode={}", clientSn, bizResultCode);
         return queryService.pollByClientSn(clientSn);
     }

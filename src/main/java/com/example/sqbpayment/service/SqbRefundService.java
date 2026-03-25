@@ -10,18 +10,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * 退款服务
- *
- * 注意事项：
- * - 退款是异步操作，提交后需轮询确认最终结果
- * - refund_request_no 必须唯一
- * - refund_amount 单位为分
- * - 累计退款金额不能超过原订单金额
- * - 支持全额退款和部分退款
  */
 @Service
 public class SqbRefundService {
@@ -41,13 +33,7 @@ public class SqbRefundService {
         this.clientSnGenerator = clientSnGenerator;
     }
 
-    /**
-     * 发起退款
-     *
-     * @param command 退款命令（已通过 Bean Validation 校验）
-     * @return 退款结果（可能经过轮询）
-     */
-    public CompletableFuture<SqbResponse> refund(RefundCommand command) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> refund(RefundCommand command) {
         command.validate();
 
         String refundRequestNo = clientSnGenerator.generateRefundNo();
@@ -83,7 +69,6 @@ public class SqbRefundService {
             return CompletableFuture.completedFuture(sqbResponse);
         }
 
-        // REFUND_IN_PROGRESS / REFUND_FAIL_ERROR -> 异步轮询查询
         log.info("退款状态未确定，启动异步轮询: refundRequestNo={}", refundRequestNo);
         if (command.sn() != null && !command.sn().isEmpty()) {
             return queryService.pollBySn(command.sn());

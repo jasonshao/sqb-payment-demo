@@ -10,8 +10,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
-
 /**
  * 终端管理控制器：激活 + 签到
  */
@@ -29,14 +27,14 @@ public class SqbTerminalController {
     public ResponseEntity<ApiResult<TerminalResult>> activate(
             @RequestParam String code,
             @RequestParam String deviceId,
-            @RequestParam(required = false) String name) throws IOException {
+            @RequestParam(required = false) String name) {
         SqbResponse response = terminalService.activate(code, deviceId, name);
         return ResponseEntity.ok(new ApiResult<>(
                 response.isCommunicationSuccess(), null, TerminalResult.from(response)));
     }
 
     @PostMapping("/checkin")
-    public ResponseEntity<ApiResult<TerminalResult>> checkin() throws IOException {
+    public ResponseEntity<ApiResult<TerminalResult>> checkin() {
         SqbResponse response = terminalService.checkin();
         return ResponseEntity.ok(new ApiResult<>(
                 response.isCommunicationSuccess(), null, TerminalResult.from(response)));

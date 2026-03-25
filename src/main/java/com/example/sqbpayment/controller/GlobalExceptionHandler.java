@@ -1,6 +1,7 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.model.ApiResult;
+import com.example.sqbpayment.sdk.exception.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -14,18 +15,12 @@ import java.util.stream.Collectors;
 
 /**
  * 全局异常处理器
- *
- * 集中处理所有 Controller 的异常，消除各 Controller 中重复的 try-catch。
- * 将异常映射为统一的 ApiResult 响应格式。
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /**
-     * Bean Validation 校验失败（@Valid 触发）
-     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResult<Void>> handleValidation(MethodArgumentNotValidException e) {
         String message = e.getBindingResult().getFieldErrors().stream()
@@ -34,17 +29,46 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(ApiResult.fail(message));
     }
 
-    /**
-     * 业务参数校验失败（手动抛出的 IllegalArgumentException）
-     */
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResult<Void>> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(ApiResult.fail(e.getMessage()));
     }
 
-    /**
-     * 收钱吧 API 通信失败
-     */
+    @ExceptionHandler(SqbApiConnectionException.class)
+    public ResponseEntity<ApiResult<Void>> handleConnectionException(SqbApiConnectionException e) {
+        log.error("收钱吧服务通信失败", e);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResult.fail("收钱吧服务通信失败: " + e.getMessage()));
+    }
+
+    @ExceptionHandler(SqbAuthenticationException.class)
+    public ResponseEntity<ApiResult<Void>> handleAuthenticationException(SqbAuthenticationException e) {
+        log.error("收钱吧认证失败", e);
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResult.fail("认证失败: " + e.getMessage()));
+    }
+
+    @ExceptionHandler(SqbSignatureVerificationException.class)
+    public ResponseEntity<ApiResult<Void>> handleSignatureException(SqbSignatureVerificationException e) {
+        log.warn("签名验证失败", e);
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResult.fail("签名验证失败"));
+    }
+
+    @ExceptionHandler(SqbRateLimitException.class)
+    public ResponseEntity<ApiResult<Void>> handleRateLimitException(SqbRateLimitException e) {
+        log.warn("请求限流", e);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(ApiResult.fail(e.getUserMessage()));
+    }
+
+    @ExceptionHandler(SqbException.class)
+    public ResponseEntity<ApiResult<Void>> handleSqbException(SqbException e) {
+        log.error("收钱吧 SDK 异常", e);
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(ApiResult.fail(e.getUserMessage()));
+    }
+
     @ExceptionHandler(IOException.class)
     public ResponseEntity<ApiResult<Void>> handleIoException(IOException e) {
         log.error("收钱吧服务通信失败", e);
@@ -52,9 +76,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResult.fail("收钱吧服务通信失败: " + e.getMessage()));
     }
 
-    /**
-     * 异步轮询被中断
-     */
     @ExceptionHandler(InterruptedException.class)
     public ResponseEntity<ApiResult<Void>> handleInterrupted(InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -62,9 +83,6 @@ public class GlobalExceptionHandler {
                 .body(ApiResult.fail("请求被中断"));
     }
 
-    /**
-     * 兜底异常处理：捕获所有未被上方特定处理器匹配的异常
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResult<Void>> handleUnexpectedException(Exception e) {
         log.error("未预期的服务异常", e);

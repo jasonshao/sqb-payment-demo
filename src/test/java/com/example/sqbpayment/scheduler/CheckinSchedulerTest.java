@@ -9,6 +9,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.sqbpayment.sdk.exception.SqbApiConnectionException;
+
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -61,7 +63,7 @@ class CheckinSchedulerTest {
 
     @Test
     void testScheduledCheckinIOException() throws Exception {
-        when(terminalService.checkin()).thenThrow(new IOException("网络异常"));
+        when(terminalService.checkin()).thenThrow(new SqbApiConnectionException("网络异常", new IOException("网络异常")));
 
         assertDoesNotThrow(() -> checkinScheduler.scheduledCheckin());
         verify(terminalService).checkin();

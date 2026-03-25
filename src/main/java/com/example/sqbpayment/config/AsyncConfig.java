@@ -10,7 +10,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * 异步线程池配置，用于支付/退款轮询任务
- * 避免轮询阻塞 Tomcat 请求线程
+ * 使用 AbortPolicy：线程池满时 fast-fail，不拖拽请求线程进入轮询
  */
 @Configuration
 @EnableAsync
@@ -23,7 +23,7 @@ public class AsyncConfig {
         executor.setMaxPoolSize(32);
         executor.setQueueCapacity(128);
         executor.setThreadNamePrefix("sqb-poll-");
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
         executor.initialize();

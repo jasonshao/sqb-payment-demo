@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -26,7 +25,7 @@ public class SqbQueryController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResult<OrderResult>> query(@RequestBody Map<String, String> params) throws IOException {
+    public ResponseEntity<ApiResult<OrderResult>> query(@RequestBody Map<String, String> params) {
         String sn = params.get("sn");
         String clientSn = params.get("clientSn");
 
