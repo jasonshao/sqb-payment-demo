@@ -9,16 +9,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * 订单查询服务，支持单次查询和轮询查询
- *
- * 轮询策略：
- * - 0~60秒：每3秒查询一次
- * - 60秒~超时：每10秒查询一次
- * - 默认超时：120秒
  */
 @Service
 public class SqbQueryService {
@@ -37,46 +31,31 @@ public class SqbQueryService {
         this.apiTemplate = apiTemplate;
     }
 
-    /**
-     * 单次查询订单（通过商户订单号）
-     */
-    public SqbResponse queryByClientSn(String clientSn) throws IOException {
+    public SqbResponse queryByClientSn(String clientSn) {
         QueryRequest request = new QueryRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setClientSn(clientSn);
         return apiTemplate.call("/upay/v2/query", request);
     }
 
-    /**
-     * 单次查询订单（通过收钱吧订单号）
-     */
-    public SqbResponse queryBySn(String sn) throws IOException {
+    public SqbResponse queryBySn(String sn) {
         QueryRequest request = new QueryRequest();
         request.setTerminalSn(config.getTerminalSn());
         request.setSn(sn);
         return apiTemplate.call("/upay/v2/query", request);
     }
 
-    /**
-     * 异步轮询查询直到获得最终状态（通过商户订单号）
-     */
     @Async("pollExecutor")
-    public CompletableFuture<SqbResponse> pollByClientSn(String clientSn) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> pollByClientSn(String clientSn) {
         return CompletableFuture.completedFuture(doPoll(clientSn, false));
     }
 
-    /**
-     * 异步轮询查询直到获得最终状态（通过收钱吧订单号）
-     */
     @Async("pollExecutor")
-    public CompletableFuture<SqbResponse> pollBySn(String sn) throws IOException, InterruptedException {
+    public CompletableFuture<SqbResponse> pollBySn(String sn) {
         return CompletableFuture.completedFuture(doPoll(sn, true));
     }
 
-    /**
-     * 统一轮询实现，消除 doPollByClientSn / doPollBySn 的重复代码
-     */
-    SqbResponse doPoll(String identifier, boolean useSn) throws IOException, InterruptedException {
+    SqbResponse doPoll(String identifier, boolean useSn) {
         long startNanos = System.nanoTime();
         long elapsedMs = 0;
         long timeoutMs = POLL_TIMEOUT_SECONDS * 1000L;
@@ -96,11 +75,16 @@ public class SqbQueryService {
             }
 
             int waitMs = elapsedMs < FAST_PHASE_MS ? FAST_INTERVAL_MS : SLOW_INTERVAL_MS;
-            Thread.sleep(waitMs);
+            try {
+                Thread.sleep(waitMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("轮询被中断: {}={}", useSn ? "sn" : "clientSn", identifier);
+                return useSn ? queryBySn(identifier) : queryByClientSn(identifier);
+            }
             elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         }
 
-        // 超时，返回最后一次查询结果
         log.warn("轮询查询超时({}秒): {}={}，请人工确认", POLL_TIMEOUT_SECONDS, useSn ? "sn" : "clientSn", identifier);
         return useSn ? queryBySn(identifier) : queryByClientSn(identifier);
     }

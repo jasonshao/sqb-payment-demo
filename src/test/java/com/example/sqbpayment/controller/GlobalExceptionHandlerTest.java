@@ -1,7 +1,10 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.model.ApiResult;
+import com.example.sqbpayment.sdk.exception.SqbApiConnectionException;
 import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,5 +37,14 @@ class GlobalExceptionHandlerTest {
         assertNotNull(response.getBody());
         assertFalse(response.getBody().success());
         assertEquals("bad param", response.getBody().message());
+    }
+
+    @Test
+    void testSqbConnectionExceptionReturns502() {
+        SqbApiConnectionException ex = new SqbApiConnectionException("连接失败", new IOException("timeout"));
+        ResponseEntity<ApiResult<Void>> response = handler.handleConnectionException(ex);
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertFalse(response.getBody().success());
     }
 }

@@ -2,6 +2,10 @@ server:
   port: 8080
 
 spring:
+  security:
+    user:
+      name: ${SQB_API_USER:admin}
+      password: ${SQB_API_PASSWORD:changeme}
   # H2 内嵌数据库（demo 用途，生产环境替换为 MySQL）
   datasource:
     url: jdbc:h2:mem:leafdb;DB_CLOSE_DELAY=-1
@@ -46,4 +50,6 @@ sqb:
 
 logging:
   level:
-    com.example.sqbpayment: DEBUG
+    com.example.sqbpayment: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{requestId}] %-5level %logger{36} - %msg%n"

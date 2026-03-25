@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -29,7 +28,7 @@ public class SqbPayController {
 
     @PostMapping
     public CompletableFuture<ResponseEntity<ApiResult<OrderResult>>> pay(
-            @Valid @RequestBody PayCommand command) throws IOException, InterruptedException {
+            @Valid @RequestBody PayCommand command) {
         return payService.pay(command)
                 .thenApply(response -> {
                     OrderResult result = OrderResult.from(response);

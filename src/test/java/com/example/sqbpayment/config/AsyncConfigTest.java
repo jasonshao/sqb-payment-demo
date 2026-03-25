@@ -11,13 +11,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class AsyncConfigTest {
 
     @Test
-    void testPollExecutorHasCallerRunsPolicy() {
+    void testPollExecutorHasAbortPolicy() {
         AsyncConfig config = new AsyncConfig();
         Executor executor = config.pollExecutor();
 
         assertInstanceOf(ThreadPoolTaskExecutor.class, executor);
         ThreadPoolTaskExecutor taskExecutor = (ThreadPoolTaskExecutor) executor;
-        assertInstanceOf(ThreadPoolExecutor.CallerRunsPolicy.class,
+        assertInstanceOf(ThreadPoolExecutor.AbortPolicy.class,
                 taskExecutor.getThreadPoolExecutor().getRejectedExecutionHandler());
     }
 }

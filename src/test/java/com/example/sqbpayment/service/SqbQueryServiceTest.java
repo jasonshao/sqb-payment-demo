@@ -11,6 +11,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.sqbpayment.sdk.exception.SqbApiConnectionException;
+
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -112,9 +114,9 @@ class SqbQueryServiceTest {
     @Test
     void testQueryNetworkException() throws Exception {
         when(apiTemplate.call(anyString(), any()))
-                .thenThrow(new IOException("网络超时"));
+                .thenThrow(new SqbApiConnectionException("网络超时", new IOException("网络超时")));
 
-        assertThrows(IOException.class, () -> queryService.queryByClientSn("order001"));
+        assertThrows(SqbApiConnectionException.class, () -> queryService.queryByClientSn("order001"));
     }
 
     // ========== 轮询测试 ==========
@@ -243,8 +245,9 @@ class SqbQueryServiceTest {
                 .thenReturn(new SqbResponse(MAPPER.readTree(createdResponse)));
 
         Thread.currentThread().interrupt();
-        assertThrows(InterruptedException.class, () -> queryService.pollByClientSn("order001"));
-        // 清除中断状态
+        SqbResponse result = queryService.doPoll("order001", false);
+        assertNotNull(result);
+        // Clear interrupt flag
         Thread.interrupted();
     }
 }

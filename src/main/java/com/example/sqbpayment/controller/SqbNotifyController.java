@@ -1,7 +1,9 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.config.SqbConfig;
-import com.example.sqbpayment.util.SqbRsaUtil;
+import com.example.sqbpayment.domain.order.IdempotencyRecord;
+import com.example.sqbpayment.domain.order.IdempotencyRepository;
+import com.example.sqbpayment.sdk.signing.SqbRsaUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,10 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 异步回调通知处理器
@@ -38,21 +37,18 @@ public class SqbNotifyController {
 
     private static final Logger log = LoggerFactory.getLogger(SqbNotifyController.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final int MAX_CACHE_SIZE = 10_000;
-    private static final long TTL_MILLIS = 24 * 60 * 60 * 1000L; // 24 hours
 
     /** 需要关注的最终状态 */
     private static final Set<String> FINAL_STATUSES = Set.of(
             "PAID", "PAY_CANCELED", "REFUNDED", "PARTIAL_REFUNDED", "CANCELED"
     );
 
-    /** 幂等记录：ConcurrentHashMap + TTL，超过 24 小时的条目会被清理 */
-    private final ConcurrentHashMap<String, Long> processedOrders = new ConcurrentHashMap<>();
-
     private final SqbConfig config;
+    private final IdempotencyRepository idempotencyRepository;
 
-    public SqbNotifyController(SqbConfig config) {
+    public SqbNotifyController(SqbConfig config, IdempotencyRepository idempotencyRepository) {
         this.config = config;
+        this.idempotencyRepository = idempotencyRepository;
     }
 
     /**
@@ -91,19 +87,14 @@ public class SqbNotifyController {
 
         log.info("回调通知解析: sn={}, clientSn={}, orderStatus={}", sn, clientSn, orderStatus);
 
-        // 幂等处理：使用 sn 作为去重键，putIfAbsent 保证原子性
+        // 幂等处理：使用 DB 记录去重
         String deduplicationKey = sn.isEmpty() ? clientSn : sn;
         if (!deduplicationKey.isEmpty()) {
-            long now = System.currentTimeMillis();
-            Long previous = processedOrders.putIfAbsent(deduplicationKey, now);
-            if (previous != null) {
+            if (idempotencyRepository.existsByIdempotencyKey(deduplicationKey)) {
                 log.info("回调通知重复，已忽略: key={}, orderStatus={}", deduplicationKey, orderStatus);
                 return ResponseEntity.ok("success");
             }
-            // 当缓存超过上限时，清理过期条目（超过 24 小时）
-            if (processedOrders.size() > MAX_CACHE_SIZE) {
-                cleanExpiredEntries(now);
-            }
+            idempotencyRepository.save(new IdempotencyRecord(deduplicationKey, orderStatus));
         }
 
         if (FINAL_STATUSES.contains(orderStatus)) {
@@ -113,16 +104,4 @@ public class SqbNotifyController {
         return ResponseEntity.ok("success");
     }
 
-    /**
-     * 清理过期的幂等记录（超过 TTL 的条目）
-     */
-    private void cleanExpiredEntries(long now) {
-        Iterator<Map.Entry<String, Long>> it = processedOrders.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<String, Long> entry = it.next();
-            if (now - entry.getValue() > TTL_MILLIS) {
-                it.remove();
-            }
-        }
-    }
 }

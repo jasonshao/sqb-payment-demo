@@ -14,6 +14,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.sqbpayment.sdk.exception.SqbApiConnectionException;
+
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -130,9 +132,9 @@ class SqbTerminalServiceTest {
     @Test
     void testActivateNetworkException() throws Exception {
         when(apiTemplate.callAsVendor(anyString(), any()))
-                .thenThrow(new IOException("网络超时"));
+                .thenThrow(new SqbApiConnectionException("网络超时", new IOException("网络超时")));
 
-        assertThrows(IOException.class, () -> service.activate("code", "device", null));
+        assertThrows(SqbApiConnectionException.class, () -> service.activate("code", "device", null));
     }
 
     @Test
@@ -292,9 +294,9 @@ class SqbTerminalServiceTest {
     @Test
     void testCheckinNetworkFailureRollsBackKey() throws Exception {
         when(apiTemplate.call(anyString(), any()))
-                .thenThrow(new IOException("网络超时"));
+                .thenThrow(new SqbApiConnectionException("网络超时", new IOException("网络超时")));
 
-        assertThrows(IOException.class, () -> service.checkin());
+        assertThrows(SqbApiConnectionException.class, () -> service.checkin());
         assertEquals("terminalkey001", config.getTerminalKey());
         verify(credentialRepository, never()).save(any());
     }
