@@ -1,6 +1,7 @@
 package com.example.sqbpayment.controller;
 
 import com.example.sqbpayment.config.SqbConfig;
+import com.example.sqbpayment.domain.order.IdempotencyRepository;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,9 @@ class SqbNotifyControllerTest {
 
     @MockBean
     private SqbConfig config;
+
+    @MockBean
+    private IdempotencyRepository idempotencyRepository;
 
     private static KeyPair keyPair;
     private static String publicKeyBase64;
